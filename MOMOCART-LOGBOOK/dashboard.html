@@ -25,10 +25,26 @@
             #add-modal {
                 width: 100% !important;
                 max-width: 100% !important;
-                height: 100% !important;
-                max-height: 100% !important;
+                margin: 0 !important;
+                border-radius: 1.5rem 1.5rem 0 0 !important;
+                position: fixed !important;
+                bottom: 0 !important;
+                top: auto !important;
+            }
+        }
+
+        /* Fullscreen on tablet/desktop */
+        @media (min-width: 641px) {
+            #add-modal {
+                width: 100vw !important;
+                max-width: 100vw !important;
+                height: 100vh !important;
+                max-height: 100vh !important;
                 margin: 0 !important;
                 border-radius: 0 !important;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
             }
         }
 
@@ -121,7 +137,7 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
                         </svg>
-                        New Entry
+                        Logbook
                     </button>
                     <button id="expenses-btn" onclick="showExpenseModal()"
                             class="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow transition-colors">
@@ -178,6 +194,7 @@
                                 <th id="th-employee" class="px-4 py-3.5 hidden whitespace-nowrap">Employee</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">No.</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">Name</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Address</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">Waiver</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">O.R.</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">Cart #</th>
@@ -185,6 +202,7 @@
                                 <th class="px-4 py-3.5 whitespace-nowrap">Time In</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">Time Out</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">Return</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap text-red-300">Overtime</th>
                                 <th class="px-4 py-3.5 whitespace-nowrap">Method</th>
                                 <th class="px-4 py-3.5 text-right whitespace-nowrap">Amount</th>
                                 <th class="px-4 py-3.5 text-right whitespace-nowrap">Add'l</th>
@@ -202,10 +220,16 @@
 
             <!-- DAILY TAB -->
             <div id="daily-content" class="hidden p-5">
-                <div class="flex items-center gap-3 mb-4">
+                <div class="flex flex-wrap items-center gap-3 mb-4">
                     <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Daily Sales Summary</h3>
                     <span id="daily-month-label" class="text-[10px] bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-bold uppercase tracking-wide"></span>
                     <span id="daily-branch-label" class="text-[10px] bg-cyan-100 text-cyan-700 px-3 py-1 rounded-full font-bold uppercase tracking-wide hidden"></span>
+                    <div class="ml-auto flex items-center gap-2">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date:</label>
+                        <select id="daily-date-picker" onchange="onDailyDateChange()"
+                                class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-emerald-400 focus:outline-none shadow-sm">
+                        </select>
+                    </div>
                 </div>
                 <div class="table-container overflow-x-auto">
                     <table class="w-full text-xs">
@@ -231,11 +255,13 @@
                                 <td id="daily-total-cash" class="px-4 py-3.5 text-right font-mono"></td>
                                 <td id="daily-total-expenses" class="px-4 py-3.5 text-right font-mono text-amber-600">₱0.00</td>
                                 <td id="daily-grand-total" class="px-4 py-3.5 text-right font-mono font-bold text-slate-800"></td>
-                                <td></td>
+                                <td class="px-4 py-3.5 text-[10px] text-slate-400 italic">Cash on Hand − Expenses</td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
+                <!-- Expenses detail table rendered by JS -->
+                <div id="daily-expenses-detail" class="mt-2"></div>
             </div>
 
             <!-- WEEKLY TAB -->
@@ -259,6 +285,7 @@
                                     <th class="px-4 py-3.5 text-right">GCash</th>
                                     <th class="px-4 py-3.5 text-right">Expenses</th>
                                     <th class="px-4 py-3.5 text-right">Cash</th>
+                                    <th class="px-4 py-3.5 text-right">Net Total</th>
                                 </tr>
                             </thead>
                             <tbody id="weekly-sales-body" class="divide-y bg-white"></tbody>
@@ -269,6 +296,7 @@
                                     <td id="weekly-total-gcash" class="px-4 py-3.5 text-right font-mono text-blue-600"></td>
                                     <td id="weekly-total-expenses" class="px-4 py-3.5 text-right font-mono text-amber-600">₱0.00</td>
                                     <td id="weekly-total-cash" class="px-4 py-3.5 text-right font-mono"></td>
+                                    <td id="weekly-total-net" class="px-4 py-3.5 text-right font-mono font-bold text-slate-800"></td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -459,14 +487,21 @@
         +
     </button>
 
-    <!-- NEW ENTRY MODAL -->
-    <dialog id="add-modal" class="w-full max-w-2xl rounded-3xl p-0 shadow-2xl overflow-hidden">
-        <div class="p-5 sm:p-7 max-h-[100dvh] sm:max-h-[90vh] overflow-y-auto">
+    <!-- NEW ENTRY MODAL — scrollable on mobile, fullscreen two-column on sm+ -->
+    <dialog id="add-modal" class="
+        w-full p-0 shadow-2xl bg-white overflow-hidden
+        max-w-full max-h-full
+        sm:rounded-none sm:w-screen sm:h-screen
+        rounded-t-3xl
+    ">
+        <!-- ── MOBILE: single scrollable column (unchanged) ── -->
+        <!-- ── SM+: fixed fullscreen, two-column, no scroll ── -->
+        <div class="flex flex-col h-full sm:h-screen">
 
-            <!-- Modal Header -->
-            <div class="-mx-5 sm:-mx-7 px-5 sm:px-7 flex justify-between items-center mb-5 sticky top-0 bg-white z-10 pb-4 border-b shadow-sm">
+            <!-- Header bar -->
+            <div class="flex justify-between items-center px-5 sm:px-8 py-4 border-b bg-white shrink-0 shadow-sm">
                 <div>
-                    <h3 class="text-lg font-bold text-slate-800">New Rental Entry</h3>
+                    <h3 class="text-base sm:text-lg font-bold text-slate-800">New Rental Entry</h3>
                     <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Fill in customer details below</p>
                 </div>
                 <button onclick="hideAddModal()" class="text-slate-300 hover:text-slate-700 transition-colors w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100">
@@ -476,128 +511,174 @@
                 </button>
             </div>
 
-            <!-- Customer Info -->
-            <div class="space-y-4 mb-5">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Customer Information</p>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div class="col-span-2">
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Customer Name</label>
-                        <input id="form-name" type="text" autocomplete="off"
-                               class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                    </div>
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Waiver</label>
-                        <input id="form-waiver" type="text" placeholder="Signed"
-                               class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                    </div>
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">O.R. #</label>
-                        <input id="form-or" type="text" inputmode="numeric"
-                               class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                    </div>
-                </div>
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto sm:overflow-hidden">
 
-                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Cart #</label>
-                        <input id="form-cart" type="text" inputmode="numeric"
-                               class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time In</label>
-                        <div class="flex gap-2">
-                            <input id="form-timein" type="time" onchange="autoCalculateTimeOut()"
-                                   class="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none min-w-0">
-                            <button type="button" onclick="stampTimeInNow()"
-                                    class="shrink-0 px-3 min-w-[52px] min-h-[48px] bg-emerald-500 active:bg-emerald-700 text-white text-[9px] font-bold rounded-xl leading-tight">
-                                TIME<br>IN
-                            </button>
+                <!-- Mobile: single column scroll / Desktop: two-column fixed -->
+                <div class="flex flex-col sm:flex-row sm:h-full">
+
+                    <!-- ══ LEFT PANEL — Customer Info ══ -->
+                    <div class="sm:w-1/2 sm:border-r border-slate-100 px-5 sm:px-8 py-5 sm:overflow-y-auto space-y-4">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Customer Information</p>
+
+                        <!-- Name + Address -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Customer Name</label>
+                                <input id="form-name" type="text" autocomplete="off"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Address</label>
+                                <input id="form-address" type="text" autocomplete="off" placeholder="e.g. Brgy. Sta. Cruz, QC"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Waiver + OR -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Waiver</label>
+                                <input id="form-waiver" type="text" placeholder="Signed"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">O.R. #</label>
+                                <input id="form-or" type="text" inputmode="numeric"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Cart + Time In + Duration + Time Out -->
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Cart #</label>
+                                <input id="form-cart" type="text" inputmode="numeric"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time In</label>
+                                <div class="flex gap-1.5">
+                                    <input id="form-timein" type="time" onchange="autoCalculateTimeOut()"
+                                           class="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none min-w-0">
+                                    <button type="button" onclick="stampTimeInNow()"
+                                            class="shrink-0 w-10 min-h-[48px] bg-cyan-500 active:bg-cyan-700 text-white text-[9px] font-bold rounded-xl leading-tight flex items-center justify-center">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                    </button>
+                                    <button type="button" onclick="confirmTimeIn()"  class="shrink-0 px-4 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl">
+                                     SET
+                                   </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Duration</label>
+                                <select id="form-duration" onchange="autoCalculateTimeOut(); autoSetRentalAmount();"
+                                        class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                    <option value="">-- Select --</option>
+                                    <option value="30">30 Mins</option>
+                                    <option value="60">1 Hour</option>
+                                    <option value="120">2 Hours</option>
+                                    <option value="180">3 Hours</option>
+                                    <option value="unlimited">Unlimited</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time Out</label>
+                                <input id="form-timeout" type="time"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Return Time + Save -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Return Time</label>
+                            <div class="flex gap-2">
+                                <input id="form-return-time" type="time" onchange="calcOvertime()"
+                                       class="min-w-0 flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400 focus:border-transparent outline-none">
+                                <button type="button" onclick="stampReturnNow()"
+                                        class="shrink-0 px-4 min-w-[80px] min-h-[48px] bg-emerald-500 active:bg-emerald-700 text-white text-xs font-bold rounded-xl">
+                                    Return
+                                </button>
+                                 <button type="button" onclick="confirmReturnTime()"  class="shrink-0 px-4 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl">
+                                     SET
+                                   </button>
+                            </div>
+                        </div>
+
+                        <!-- Overtime (read-only, auto-calculated, always visible) -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Overtime</label>
+                            <div id="overtime-wrap" class="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 min-h-[52px]">
+                                <svg class="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <p id="overtime-label" class="text-sm font-mono text-slate-300">--:--:--</p>
+                            </div>
+                        </div>
+
+                        <!-- Valid ID -->
+                        <div class="border-t pt-4">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Valid ID Type</label>
+                            <select id="form-validid" onchange="handleValidIdChange()"
+                                    class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                <option value="Regular">Regular</option>
+                                <option value="Senior">Senior</option>
+                                <option value="PWD">PWD</option>
+                            </select>
+                            <p id="discount-note" class="hidden text-[11px] text-emerald-600 font-bold mt-2">Senior / PWD Discount Applied</p>
                         </div>
                     </div>
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Duration</label>
-                        <select id="form-duration" onchange="autoCalculateTimeOut(); autoSetRentalAmount();"
-                                class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                            <option value="30">30 Mins</option>
-                            <option value="60">1 Hour</option>
-                            <option value="120">2 Hours</option>
-                            <option value="180">3 Hours</option>
-                            <option value="unlimited">Unlimited</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time Out</label>
-                        <input id="form-timeout" type="time"
-                               class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                    </div>
-                </div>
 
-                <div>
-                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Return Time</label>
-                    <div class="flex gap-2">
-                        <input id="form-return-time" type="time"
-                               class="min-w-0 flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400 focus:border-transparent outline-none">
-                        <button type="button" onclick="stampReturnNow()"
-                                class="shrink-0 px-5 min-w-[80px] min-h-[48px] bg-emerald-500 active:bg-emerald-700 text-white text-xs font-bold rounded-xl">
-                            Return
+                    <!-- ══ RIGHT PANEL — Payment + Total + Save ══ -->
+                    <div class="sm:w-1/2 px-5 sm:px-8 py-5 flex flex-col gap-4 sm:overflow-y-auto">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Payment Details</p>
+
+                        <!-- Method only -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Method</label>
+                            <select id="form-payment-method" onchange="handlePaymentMethodChange()"
+                                    class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                <option value="Cash">Cash</option>
+                                <option value="GCash">GCash</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <!-- Hidden amount (auto-set, not shown to user) -->
+                        <input id="form-amount" type="hidden">
+
+                        <!-- Other payment -->
+                        <div id="payment-other-wrap" class="hidden">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Specify Payment Type</label>
+                            <input id="form-payment-other" type="text" placeholder="e.g. Bank Transfer..."
+                                   class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                        </div>
+
+                        <!-- Additional Charges -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Additional Charges</label>
+                            <input id="form-add-charge" type="number" inputmode="decimal" oninput="updateLiveTotal()" placeholder="0"
+                                   class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none font-mono text-right">
+                        </div>
+
+                        <!-- Total Display — clean, no dark background -->
+                        <div class="border border-emerald-200 bg-emerald-50 rounded-2xl px-5 py-4 flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Entry Total</span>
+                            <h2 id="live-total" class="text-2xl font-bold text-emerald-700">₱0.00</h2>
+                        </div>
+
+                        <!-- Save Button -->
+                        <button onclick="submitNewEntry()"
+                                class="w-full btn-gradient text-white py-4 rounded-2xl font-bold text-base shadow active:scale-95 transition-transform shrink-0">
+                            Save to Digital Logbook
                         </button>
                     </div>
-                </div>
 
-                <div class="border-t pt-4">
-                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Valid ID Type</label>
-                    <select id="form-validid" onchange="handleValidIdChange()"
-                            class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                        <option value="Regular">Regular</option>
-                        <option value="Senior">Senior</option>
-                        <option value="PWD">PWD</option>
-                    </select>
-                    <p id="discount-note" class="hidden text-[11px] text-emerald-600 font-bold mt-2">Senior / PWD Discount Applied</p>
-                </div>
-            </div>
-
-            <!-- Payment -->
-            <div class="space-y-3 mb-5 border-t pt-5">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Payment Details</p>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Method</label>
-                        <select id="form-payment-method" onchange="handlePaymentMethodChange()"
-                                class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                            <option value="Cash">Cash</option>
-                            <option value="GCash">GCash</option>
-                            <option value="Other">Other</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Amount</label>
-                        <input id="form-amount" type="number" inputmode="decimal" oninput="updateLiveTotal()"
-                               class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none font-mono text-right">
-                    </div>
-                </div>
-                <div id="payment-other-wrap" class="hidden">
-                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Specify Payment Type</label>
-                    <input id="form-payment-other" type="text" placeholder="e.g. Bank Transfer..."
-                           class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
-                </div>
-                <div>
-                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Additional Charges</label>
-                    <input id="form-add-charge" type="number" inputmode="decimal" oninput="updateLiveTotal()" placeholder="0"
-                           class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none font-mono text-right">
-                </div>
-            </div>
-
-            <!-- Total Display -->
-            <div class="bg-[#0f172a] rounded-2xl p-5 sm:p-6 text-white mb-5">
-                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Entry Total</span>
-                <h2 id="live-total" class="text-4xl sm:text-5xl font-bold text-[#fde047] mt-1">₱0.00</h2>
-            </div>
-
-            <button onclick="submitNewEntry()"
-                    class="w-full btn-gradient text-white py-4 rounded-2xl font-bold text-base shadow active:scale-95 transition-transform">
-                Save to Digital Logbook
-            </button>
-        </div>
+                </div><!-- end two-col -->
+            </div><!-- end body -->
+        </div><!-- end flex-col -->
     </dialog>
 
     <!-- EXPENSES MODAL -->
@@ -669,6 +750,116 @@
         </div>
     </dialog>
 
-    <script src="script.js?v=3"></script>
+    <!-- EDIT MODAL -->
+    <dialog id="edit-modal" class="w-full max-w-2xl rounded-3xl p-0 shadow-2xl overflow-hidden backdrop:bg-black/60">
+        <div class="bg-[#0f172a] px-8 py-5 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-white">Edit Record</h3>
+                <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Modify log entry</p>
+            </div>
+            <button onclick="closeEditModal()" class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="p-6 sm:p-8 bg-white space-y-4 max-h-[80vh] overflow-y-auto">
+            <input id="edit-id" type="hidden">
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Customer Name</label>
+                    <input id="edit-name" type="text" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Address</label>
+                    <input id="edit-address" type="text" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Waiver</label>
+                    <input id="edit-waiver" type="text" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">O.R. #</label>
+                    <input id="edit-or" type="text" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Cart #</label>
+                    <input id="edit-cart" type="text" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time In</label>
+                    <input id="edit-timein" type="time" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time Out</label>
+                    <input id="edit-timeout" type="time" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Return Time</label>
+                    <input id="edit-return-time" type="time" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Valid ID</label>
+                    <select id="edit-validid" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                        <option value="Regular">Regular</option>
+                        <option value="Senior">Senior</option>
+                        <option value="PWD">PWD</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Payment Method</label>
+                    <select id="edit-payment" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                        <option value="Cash">Cash</option>
+                        <option value="GCash">GCash</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Amount</label>
+                    <input id="edit-amount" type="number" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Additional Charges</label>
+                    <input id="edit-addl" type="number" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Return Status</label>
+                    <select id="edit-return-status" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none">
+                        <option value="Pending">Pending</option>
+                        <option value="Returned">Returned</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeEditModal()"
+                        class="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="submitEditEntry()"
+                        class="flex-1 py-3 rounded-2xl btn-gradient text-white font-bold text-sm shadow active:scale-95 transition-transform">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </dialog>
+
+    <script src="script.js?v=4"></script>
 </body>
 </html>

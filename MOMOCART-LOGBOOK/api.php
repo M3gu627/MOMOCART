@@ -42,6 +42,7 @@ switch($action) {
     case 'saveExpense':   saveExpense();      break;
     case 'getExpenses':   getExpenses();      break;
     case 'deleteLog':     deleteLog();        break;
+    case 'updateLog':     updateLog();        break;
     default:              echo json_encode(['error' => 'Invalid action']); break;
 }
 
@@ -156,16 +157,17 @@ function saveLog() {
     try {
         $stmt = $pdo->prepare("
             INSERT INTO rental_logs (
-                employee_username, name, waiver, or_number, cart_number,
+                employee_username, name, address, waiver, or_number, cart_number,
                 valid_id, time_in, time_out, return_status,
                 amount_cash, amount_gcash, additional_cash, additional_gcash, 
                 total, return_time, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         $stmt->execute([
             $_SESSION['user']['username'],
             $data['name'] ?? '',
+            $data['address'] ?? '',
             $data['waiver'] ?? '',
             $data['or_number'] ?? '',
             $data['cart_number'] ?? '',
@@ -307,6 +309,90 @@ function deleteLog() {
     } catch(PDOException $e) {
         error_log($e->getMessage());
         echo json_encode(['success' => false, 'message' => 'Failed to delete record']);
+    }
+}
+// ── UPDATE LOG ──
+function updateLog() {
+    global $pdo;
+
+    if (!isset($_SESSION['user'])) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Not logged in']);
+        return;
+    }
+
+    $data = json_decode(file_get_contents('php://input'), true);
+    $id = isset($data['id']) ? (int)$data['id'] : 0;
+
+    if ($id <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid record ID']);
+        return;
+    }
+
+    try {
+        if ($_SESSION['user']['role'] === 'admin') {
+            $stmt = $pdo->prepare("
+                UPDATE rental_logs SET
+                    name = ?, address = ?, waiver = ?, or_number = ?, cart_number = ?,
+                    valid_id = ?, time_in = ?, time_out = ?, return_time = ?,
+                    amount_cash = ?, amount_gcash = ?,
+                    additional_cash = ?, additional_gcash = ?,
+                    total = ?, return_status = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $data['name'] ?? '',
+                $data['address'] ?? '',
+                $data['waiver'] ?? '',
+                $data['or_number'] ?? '',
+                $data['cart_number'] ?? '',
+                $data['valid_id'] ?? '',
+                $data['time_in'] ?? '',
+                $data['time_out'] ?? '',
+                $data['return_time'] ?? '',
+                $data['amount_cash'] ?? -1,
+                $data['amount_gcash'] ?? -1,
+                $data['additional_cash'] ?? 0,
+                $data['additional_gcash'] ?? 0,
+                $data['total'] ?? 0,
+                $data['return_status'] ?? 'Pending',
+                $id
+            ]);
+        } else {
+            // Branch can only edit their own records
+            $stmt = $pdo->prepare("
+                UPDATE rental_logs SET
+                    name = ?, address = ?, waiver = ?, or_number = ?, cart_number = ?,
+                    valid_id = ?, time_in = ?, time_out = ?, return_time = ?,
+                    amount_cash = ?, amount_gcash = ?,
+                    additional_cash = ?, additional_gcash = ?,
+                    total = ?, return_status = ?
+                WHERE id = ? AND employee_username = ?
+            ");
+            $stmt->execute([
+                $data['name'] ?? '',
+                $data['address'] ?? '',
+                $data['waiver'] ?? '',
+                $data['or_number'] ?? '',
+                $data['cart_number'] ?? '',
+                $data['valid_id'] ?? '',
+                $data['time_in'] ?? '',
+                $data['time_out'] ?? '',
+                $data['return_time'] ?? '',
+                $data['amount_cash'] ?? -1,
+                $data['amount_gcash'] ?? -1,
+                $data['additional_cash'] ?? 0,
+                $data['additional_gcash'] ?? 0,
+                $data['total'] ?? 0,
+                $data['return_status'] ?? 'Pending',
+                $id,
+                $_SESSION['user']['username']
+            ]);
+        }
+        echo json_encode(['success' => true]);
+    } catch(PDOException $e) {
+        error_log($e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Failed to update record']);
     }
 }
 ?>

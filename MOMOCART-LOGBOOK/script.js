@@ -74,7 +74,7 @@ let currentBranchUsername = null;
 
 function showBranchModal(branch) {
     currentBranchUsername = branch;
-    const titles = { pampanga: 'Pampanga', baliwag: 'Baliwag', trinoma: 'Trinoma' };
+    const titles = { pampanga: 'Pampanga', baliwag: 'Baliwag', trinoma: 'Trinoma', smartwheels: 'Smart Wheels', bataan: 'Bataan' };
     document.getElementById('branch-modal-sub').textContent = titles[branch] + ' Branch Login';
     document.getElementById('branch-password-input').value = '';
     document.getElementById('branch-login-error').classList.add('hidden');
@@ -258,10 +258,12 @@ function buildAdminToolbar() {
     if (!tableHeaderBar) return;
 
     const branches = [
-        { key: 'all',      label: 'All' },
-        { key: 'baliwag',  label: 'Baliwag' },
-        { key: 'pampanga', label: 'Pampanga' },
-        { key: 'trinoma',  label: 'Trinoma' },
+        { key: 'all',         label: 'All' },
+        { key: 'baliwag',     label: 'Baliwag' },
+        { key: 'pampanga',    label: 'Pampanga' },
+        { key: 'trinoma',     label: 'Trinoma' },
+        { key: 'smartwheels', label: 'Smart Wheels' },
+        { key: 'bataan',      label: 'Bataan' },
     ];
 
     let toolbar = document.getElementById('admin-toolbar');
@@ -298,9 +300,11 @@ function setBranch(branch) {
 
 // Branch → username mapping
 const BRANCH_USERS = {
-    baliwag:  ['baliwag'],
-    pampanga: ['pampanga'],
-    trinoma:  ['trinoma'],
+    baliwag:     ['baliwag'],
+    pampanga:    ['pampanga'],
+    trinoma:     ['trinoma'],
+    smartwheels: ['smartwheels'],
+    bataan:      ['bataan'],
 };
 
 function renderTable() {
@@ -367,16 +371,26 @@ function renderTable() {
 
         const actionCell = currentUser.role === 'admin'
             ? `<td class="px-4 py-4 text-center">
-                <button data-delete-id="${log.id}" data-delete-name="${log.name.replace(/"/g, '&quot;')}"
-                    class="action-btn delete-btn bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-colors">
-                    DELETE
-                </button>
+                <div class="flex flex-col items-center gap-1">
+                    <button onclick="openEditModal(${log.id})"
+                        class="action-btn bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors">
+                        EDIT
+                    </button>
+                    <button data-delete-id="${log.id}" data-delete-name="${log.name.replace(/"/g, '&quot;')}"
+                        class="action-btn delete-btn bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-colors">
+                        DELETE
+                    </button>
+                </div>
                </td>`
             : `<td class="px-4 py-4 text-center">
                 <div class="flex flex-col items-center gap-1">
                     ${isReturned
                         ? `<span class="text-slate-400 text-[10px]">✓ ${log.return_time}</span>`
                         : `<button onclick="markReturned(${log.id})" class="bg-amber-400 text-white px-3 py-1 rounded-xl text-[10px] font-bold">RETURN</button>`}
+                    <button onclick="openEditModal(${log.id})"
+                        class="action-btn bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors mt-1">
+                        EDIT
+                    </button>
                     <button data-delete-id="${log.id}" data-delete-name="${log.name.replace(/"/g, '&quot;')}"
                         class="action-btn delete-btn bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-colors mt-1">
                         DELETE
@@ -387,6 +401,7 @@ function renderTable() {
         html += `
             <td class="px-4 py-4 text-slate-400">${startIndex + index + 1}</td>
             <td class="px-4 py-4 font-bold text-slate-700">${log.name}</td>
+            <td class="px-4 py-4 text-slate-500 text-[10px]">${log.address || '—'}</td>
             <td class="px-4 py-4">${log.waiver}</td>
             <td class="px-4 py-4 font-mono text-[10px]">${log.or_number}</td>
             <td class="px-4 py-4">${log.cart_number}</td>
@@ -394,6 +409,15 @@ function renderTable() {
             <td class="px-4 py-4 font-mono text-emerald-600">${log.time_in}</td>
             <td class="px-4 py-4">${timeOutDisplay}</td>
             <td class="px-4 py-4 font-mono text-slate-500">${log.return_time || '--:--'}</td>
+            <td class="px-4 py-4">${(()=>{
+                if (!log.return_time || !log.time_out || log.time_out === '00:00') return '<span class="text-slate-300">—</span>';
+                const [outH, outM] = log.time_out.split(':').map(Number);
+                const [retH, retM] = log.return_time.split(':').map(Number);
+                const diffSecs = (retH * 3600 + retM * 60) - (outH * 3600 + outM * 60);
+                if (diffSecs <= 0) return '<span class="text-emerald-500 text-[10px] font-bold">On Time</span>';
+                const h = Math.floor(diffSecs/3600), m = Math.floor((diffSecs%3600)/60), s = diffSecs%60;
+                return '<span class="text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded-lg border border-red-200">' + String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + '</span>';
+            })()}</td>
             <td class="px-4 py-4 text-[10px] font-bold">${log.payment_method || '-'}</td>
             <td class="px-4 py-4 text-right font-mono">₱${baseAmount.toFixed(2)}</td>
             <td class="px-4 py-4 text-right font-mono">${addlAmount > 0 ? '<span class="text-amber-600 font-bold">₱' + addlAmount.toFixed(2) + '</span>' : '<span class="text-slate-300">—</span>'}</td>
@@ -470,15 +494,42 @@ function autoCalculateTimeOut() {
     timeoutInput.value = `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
 }
 
-function stampTimeInNow() {
-    const now = new Date();
-    document.getElementById('form-timein').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    autoCalculateTimeOut();
-}
 
 function stampReturnNow() {
     const now = new Date();
     document.getElementById('form-return-time').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    calcOvertime();
+}
+
+function calcOvertime() {
+    const timeoutStr = document.getElementById('form-timeout').value;
+    const returnStr  = document.getElementById('form-return-time').value;
+    const wrap  = document.getElementById('overtime-wrap');
+    const label = document.getElementById('overtime-label');
+    const icon  = wrap.querySelector('svg');
+
+    const reset = () => {
+        wrap.className = 'flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 min-h-[52px]';
+        icon.className = 'w-4 h-4 text-slate-300 shrink-0';
+        label.className = 'text-sm font-mono text-slate-300';
+        label.textContent = '--:--:--';
+    };
+
+    if (!timeoutStr || !returnStr || timeoutStr === '00:00') { reset(); return; }
+
+    const [outH, outM] = timeoutStr.split(':').map(Number);
+    const [retH, retM] = returnStr.split(':').map(Number);
+    const diffSecs = (retH * 3600 + retM * 60) - (outH * 3600 + outM * 60);
+
+    if (diffSecs > 0) {
+        const h = Math.floor(diffSecs/3600), m = Math.floor((diffSecs%3600)/60), s = diffSecs%60;
+        wrap.className = 'flex items-center gap-3 bg-red-50 border-2 border-red-400 rounded-xl px-4 py-3 min-h-[52px]';
+        icon.className = 'w-4 h-4 text-red-500 shrink-0';
+        label.className = 'text-lg font-bold text-red-600 font-mono tracking-widest';
+        label.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    } else {
+        reset();
+    }
 }
 
 const PRICES_REGULAR  = { '30': 100, '60': 150, '120': 300, '180': 450, 'unlimited': 600 };
@@ -505,6 +556,7 @@ function updateLiveTotal() {
 
 function showAddModal() {
     document.getElementById('form-name').value = '';
+    document.getElementById('form-address').value = '';
     document.getElementById('form-waiver').value = '';
     document.getElementById('form-or').value = '';
     document.getElementById('form-cart').value = '';
@@ -513,13 +565,19 @@ function showAddModal() {
     document.getElementById('form-return-time').value = '';
     document.getElementById('form-amount').value = '';
     document.getElementById('form-add-charge').value = '';
-    document.getElementById('form-duration').value = '30';
+    document.getElementById('form-duration').value = '';
     document.getElementById('form-validid').value = 'Regular';
     document.getElementById('form-payment-method').value = 'Cash';
     document.getElementById('form-payment-other').value = '';
     document.getElementById('payment-other-wrap').classList.add('hidden');
     document.getElementById('discount-note').classList.add('hidden');
     document.getElementById('live-total').innerHTML = '₱0.00';
+    const otWrap = document.getElementById('overtime-wrap');
+    const otLabel = document.getElementById('overtime-label');
+    const otIcon = otWrap ? otWrap.querySelector('svg') : null;
+    if (otWrap) otWrap.className = 'flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 min-h-[52px]';
+    if (otIcon) otIcon.className = 'w-4 h-4 text-slate-300 shrink-0';
+    if (otLabel) { otLabel.className = 'text-sm font-mono text-slate-300'; otLabel.textContent = '--:--:--'; }
     const timeoutInput = document.getElementById('form-timeout');
     timeoutInput.disabled = false;
     timeoutInput.placeholder = '';
@@ -529,9 +587,84 @@ function showAddModal() {
 }
 function hideAddModal() { document.getElementById('add-modal').close(); }
 
+function stampTimeInNow() {
+    const now = new Date();
+    const val = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    document.getElementById('form-timein').value = val;
+    autoCalculateTimeOut();
+}
+
+// ── EDIT MODAL ──
+function openEditModal(id) {
+    const log = allLogs.find(l => l.id === id);
+    if (!log) return;
+    document.getElementById('edit-id').value = log.id;
+    document.getElementById('edit-name').value = log.name || '';
+    document.getElementById('edit-address').value = log.address || '';
+    document.getElementById('edit-waiver').value = log.waiver || '';
+    document.getElementById('edit-or').value = log.or_number || '';
+    document.getElementById('edit-cart').value = log.cart_number || '';
+    document.getElementById('edit-timein').value = log.time_in || '';
+    document.getElementById('edit-timeout').value = log.time_out || '';
+    document.getElementById('edit-return-time').value = log.return_time || '';
+    document.getElementById('edit-validid').value = log.valid_id || 'Regular';
+    document.getElementById('edit-payment').value = log.payment_method || 'Cash';
+    const baseAmount = parseFloat(log.amount_cash >= 0 ? log.amount_cash : (log.amount_gcash >= 0 ? log.amount_gcash : 0)) || 0;
+    const addlAmount = parseFloat(log.additional_cash > 0 ? log.additional_cash : (log.additional_gcash > 0 ? log.additional_gcash : 0)) || 0;
+    document.getElementById('edit-amount').value = baseAmount;
+    document.getElementById('edit-addl').value = addlAmount;
+    document.getElementById('edit-return-status').value = log.return_status || 'Pending';
+    document.getElementById('edit-modal').showModal();
+}
+
+function closeEditModal() { document.getElementById('edit-modal').close(); }
+
+async function submitEditEntry() {
+    const id = document.getElementById('edit-id').value;
+    const payment = document.getElementById('edit-payment').value;
+    const amount = parseFloat(document.getElementById('edit-amount').value) || 0;
+    const addl   = parseFloat(document.getElementById('edit-addl').value) || 0;
+    const data = {
+        id,
+        name:          document.getElementById('edit-name').value,
+        address:       document.getElementById('edit-address').value,
+        waiver:        document.getElementById('edit-waiver').value,
+        or_number:     document.getElementById('edit-or').value,
+        cart_number:   document.getElementById('edit-cart').value,
+        time_in:       document.getElementById('edit-timein').value,
+        time_out:      document.getElementById('edit-timeout').value,
+        return_time:   document.getElementById('edit-return-time').value,
+        valid_id:      document.getElementById('edit-validid').value,
+        payment_method: payment,
+        amount_cash:   payment === 'Cash'  ? amount : -1,
+        amount_gcash:  payment === 'GCash' ? amount : -1,
+        additional_cash:  payment === 'Cash'  ? addl : 0,
+        additional_gcash: payment === 'GCash' ? addl : 0,
+        total:         amount + addl,
+        return_status: document.getElementById('edit-return-status').value,
+    };
+    try {
+        const res = await apiFetch('api.php?action=updateLog', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+            closeEditModal();
+            loadLogs();
+        } else {
+            alert('❌ Failed to update: ' + (result.message || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('❌ Network error. Please try again.');
+    }
+}
+
 async function submitNewEntry() {
     const log = {
         name: document.getElementById('form-name').value,
+        address: document.getElementById('form-address').value,
         waiver: document.getElementById('form-waiver').value,
         or_number: document.getElementById('form-or').value,
         cart_number: document.getElementById('form-cart').value,
@@ -616,7 +749,82 @@ function switchTab(tab) {
 }
 
 // ── DAILY SUMMARY ──
+
+// Tracks the currently selected date in the Daily tab
+let selectedDailyDate = null;
+
+function buildDailyDatePicker(logsToUse, expsToUse) {
+    const picker = document.getElementById('daily-date-picker');
+    if (!picker) return;
+
+    // Collect all unique dates from logs and expenses
+    const dateSet = new Set();
+    logsToUse.forEach(log => { if (log.created_at) dateSet.add(log.created_at.split(' ')[0]); });
+    expsToUse.forEach(exp => { if (exp.expense_date) dateSet.add(exp.expense_date); });
+
+    // Always include today
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+    dateSet.add(todayStr);
+
+    const sortedDates = [...dateSet].sort().reverse(); // newest first
+
+    // Preserve selection if still valid, else default to today
+    if (!selectedDailyDate || !dateSet.has(selectedDailyDate)) {
+        selectedDailyDate = dateSet.has(todayStr) ? todayStr : sortedDates[0];
+    }
+
+    picker.innerHTML = '';
+    sortedDates.forEach(ds => {
+        const [y, m, d] = ds.split('-').map(Number);
+        const dayName = new Date(y, m - 1, d).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+        const opt = document.createElement('option');
+        opt.value = ds;
+        opt.textContent = ds === todayStr ? `Today — ${dayName}` : dayName + ` (${ds})`;
+        if (ds === selectedDailyDate) opt.selected = true;
+        picker.appendChild(opt);
+    });
+}
+
+function onDailyDateChange() {
+    const picker = document.getElementById('daily-date-picker');
+    if (picker) selectedDailyDate = picker.value;
+    renderDailyTable();
+}
+
 function renderDailySummary() {
+    let logsToUse = allLogs;
+    let expsToUse = allExpenses;
+
+    if (currentUser.role === 'admin' && activeBranch !== 'all') {
+        const branchUsers = BRANCH_USERS[activeBranch] || [];
+        logsToUse = allLogs.filter(log => branchUsers.includes(log.employee_username));
+        expsToUse = allExpenses.filter(exp => branchUsers.includes(exp.employee_username));
+    } else if (currentUser.role !== 'admin') {
+        logsToUse = allLogs.filter(log => log.employee_username === currentUser.username);
+        expsToUse = allExpenses.filter(exp => exp.employee_username === currentUser.username);
+    }
+
+    // Build the date dropdown (sets selectedDailyDate)
+    buildDailyDatePicker(logsToUse, expsToUse);
+
+    // Update branch badge
+    const branchLabel = document.getElementById('daily-branch-label');
+    if (branchLabel) {
+        if (currentUser.role === 'admin' && activeBranch !== 'all') {
+            branchLabel.textContent = activeBranch.toUpperCase();
+            branchLabel.classList.remove('hidden');
+        } else {
+            branchLabel.classList.add('hidden');
+        }
+    }
+
+    renderDailyTable();
+}
+
+function renderDailyTable() {
     const tbody = document.getElementById('daily-table-body');
     tbody.innerHTML = '';
 
@@ -632,57 +840,49 @@ function renderDailySummary() {
         expsToUse = allExpenses.filter(exp => exp.employee_username === currentUser.username);
     }
 
+    // Filter to the selected day only
+    const dayLogs = logsToUse.filter(log => log.created_at && log.created_at.startsWith(selectedDailyDate));
+    const dayExps = expsToUse.filter(exp => exp.expense_date === selectedDailyDate);
+
+    // Update the month label to show the selected date
     const monthLabel = document.getElementById('daily-month-label');
-    if (monthLabel) {
-        const now = new Date();
-        monthLabel.textContent = now.toLocaleString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
-    }
-    const branchLabel = document.getElementById('daily-branch-label');
-    if (branchLabel) {
-        if (currentUser.role === 'admin' && activeBranch !== 'all') {
-            branchLabel.textContent = activeBranch.toUpperCase();
-            branchLabel.classList.remove('hidden');
-        } else {
-            branchLabel.classList.add('hidden');
-        }
+    if (monthLabel && selectedDailyDate) {
+        const [y, m, d] = selectedDailyDate.split('-').map(Number);
+        const label = new Date(y, m - 1, d).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        monthLabel.textContent = label.toUpperCase();
     }
 
-    // Group by date+branch key so every branch shows its own row per day
-    const groups = {};  // key: "YYYY-MM-DD|username"
+    // Group by staff (username) so each branch gets its own row
+    const groups = {};
 
-    logsToUse.forEach(log => {
-        const dateStr = log.created_at ? log.created_at.split(' ')[0] : 'N/A';
-        const key = `${dateStr}|${log.employee_username}`;
-        if (!groups[key]) groups[key] = { dateStr, staff: log.employee_username, logs: [], exps: [] };
+    dayLogs.forEach(log => {
+        const key = log.employee_username;
+        if (!groups[key]) groups[key] = { staff: key, logs: [], exps: [] };
         groups[key].logs.push(log);
     });
 
-    expsToUse.forEach(exp => {
-        const dateStr = exp.expense_date;
-        const key = `${dateStr}|${exp.employee_username}`;
-        if (!groups[key]) groups[key] = { dateStr, staff: exp.employee_username, logs: [], exps: [] };
+    dayExps.forEach(exp => {
+        const key = exp.employee_username;
+        if (!groups[key]) groups[key] = { staff: key, logs: [], exps: [] };
         groups[key].exps.push(exp);
     });
 
+    const sortedKeys = Object.keys(groups).sort();
+
     let grandSales = 0, grandGCash = 0, grandCash = 0, grandExpenses = 0;
 
-    // Sort by date desc, then by staff name asc within same date
-    const sortedKeys = Object.keys(groups).sort((a, b) => {
-        const [dateA, staffA] = a.split('|');
-        const [dateB, staffB] = b.split('|');
-        if (dateB !== dateA) return dateB.localeCompare(dateA);
-        return staffA.localeCompare(staffB);
-    });
-
     if (sortedKeys.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="py-12 text-center text-slate-400 italic">No records for this branch/period.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="py-12 text-center text-slate-400 italic">No records for this day.</td></tr>`;
         ['daily-total-sales','daily-total-gcash','daily-total-cash','daily-total-expenses','daily-grand-total']
             .forEach(id => { const el = document.getElementById(id); if(el) el.innerHTML = '₱0.00'; });
         return;
     }
 
+    const [y, m, d] = selectedDailyDate.split('-').map(Number);
+    const dayName = new Date(y, m - 1, d).toLocaleString('en-US', { weekday: 'short' });
+
     sortedKeys.forEach(key => {
-        const { dateStr, staff, logs, exps } = groups[key];
+        const { staff, logs, exps } = groups[key];
 
         let sales = 0, gcash = 0, cashOnHand = 0;
 
@@ -698,20 +898,19 @@ function renderDailySummary() {
         const dayExpenses = exps.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
         grandExpenses += dayExpenses;
 
-        const [y, m, d] = dateStr.split('-').map(Number);
-        const dayName = new Date(y, m - 1, d).toLocaleString('en-US', { weekday: 'short' });
-        const netTotal = sales - dayExpenses;
+        // Net Total = Cash on Hand minus expenses only (GCash not deducted)
+        const netTotal = cashOnHand - dayExpenses;
 
         tbody.innerHTML += `
             <tr class="hover:bg-slate-50 border-b border-slate-100">
                 <td class="px-4 py-4 font-medium text-cyan-700">${staff}</td>
                 <td class="px-4 py-4">${dayName}</td>
-                <td class="px-4 py-4">${dateStr}</td>
+                <td class="px-4 py-4">${selectedDailyDate}</td>
                 <td class="px-4 py-4 text-right font-mono">₱${sales.toFixed(2)}</td>
                 <td class="px-4 py-4 text-right font-mono">₱${gcash.toFixed(2)}</td>
                 <td class="px-4 py-4 text-right font-mono">₱${cashOnHand.toFixed(2)}</td>
                 <td class="px-4 py-4 text-right font-mono text-amber-600">₱${dayExpenses.toFixed(2)}</td>
-                <td class="px-4 py-4 text-right font-bold">₱${netTotal.toFixed(2)}</td>
+                <td class="px-4 py-4 text-right font-bold ${netTotal < 0 ? 'text-red-500' : 'text-slate-800'}">₱${netTotal.toFixed(2)}</td>
                 <td class="px-4 py-4 text-slate-500">${exps.map(e => e.particulars).join(', ') || '—'}</td>
             </tr>`;
 
@@ -724,7 +923,48 @@ function renderDailySummary() {
     document.getElementById('daily-total-gcash').innerHTML    = `₱${grandGCash.toFixed(2)}`;
     document.getElementById('daily-total-cash').innerHTML     = `₱${grandCash.toFixed(2)}`;
     document.getElementById('daily-total-expenses').innerHTML = `₱${grandExpenses.toFixed(2)}`;
-    document.getElementById('daily-grand-total').innerHTML    = `₱${(grandSales - grandExpenses).toFixed(2)}`;
+    // Net = Cash on Hand - Expenses
+    document.getElementById('daily-grand-total').innerHTML    = `₱${(grandCash - grandExpenses).toFixed(2)}`;
+
+    // ── EXPENSES DETAIL TABLE (below summary) ──
+    const expWrap = document.getElementById('daily-expenses-detail');
+    if (!expWrap) return;
+    if (dayExps.length === 0) {
+        expWrap.innerHTML = `<p class="text-slate-400 italic text-xs py-4 text-center">No expenses recorded for this day.</p>`;
+        return;
+    }
+    let expHtml = `
+        <p class="stat-label text-amber-600 mb-2 mt-6">Expenses This Day</p>
+        <div class="table-container overflow-x-auto">
+        <table class="w-full text-xs">
+            <thead class="bg-[#0f172a] text-white">
+                <tr>
+                    <th class="px-4 py-3.5 text-left">Staff</th>
+                    <th class="px-4 py-3.5 text-left">Particulars</th>
+                    <th class="px-4 py-3.5 text-right">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y bg-white">`;
+    dayExps.forEach(exp => {
+        expHtml += `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-4 py-3 text-cyan-700 font-medium">${exp.employee_username}</td>
+                    <td class="px-4 py-3">${exp.particulars}</td>
+                    <td class="px-4 py-3 text-right font-mono text-amber-600">₱${parseFloat(exp.amount).toFixed(2)}</td>
+                </tr>`;
+    });
+    const totalExp = dayExps.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+    expHtml += `
+            </tbody>
+            <tfoot class="bg-amber-50 font-bold border-t-2 border-amber-100">
+                <tr>
+                    <td colspan="2" class="px-4 py-3.5 text-right text-[10px] uppercase tracking-widest text-amber-600">Total Expenses This Day</td>
+                    <td class="px-4 py-3.5 text-right font-mono text-amber-600">₱${totalExp.toFixed(2)}</td>
+                </tr>
+            </tfoot>
+        </table>
+        </div>`;
+    expWrap.innerHTML = expHtml;
 }
 
 // ── WEEKLY HELPERS ──
@@ -862,18 +1102,20 @@ function renderWeeklyTable() {
     sortedDays.forEach(ds => {
         const dl = dayGroups[ds].logs;
         const de = dayGroups[ds].exps;
-        let sales = 0, gcash = 0, cash = 0;
+        let sales = 0, gcash = 0, cashOnHand = 0;
 
         dl.forEach(log => {
-            const base = parseFloat(log.amount_cash > 0 ? log.amount_cash : (log.amount_gcash > 0 ? log.amount_gcash : 0)) || 0;
+            const base = parseFloat(log.amount_cash >= 0 ? log.amount_cash : (log.amount_gcash >= 0 ? log.amount_gcash : 0)) || 0;
             const addl = parseFloat(log.additional_cash > 0 ? log.additional_cash : (log.additional_gcash > 0 ? log.additional_gcash : 0)) || 0;
             const rt = base + addl;
             sales += rt;
-            if (log.amount_cash > 0 && log.payment_method !== 'GCash') cash += rt;
+            if (log.amount_cash >= 0 && log.payment_method !== 'GCash') cashOnHand += rt;
             else gcash += rt;
         });
 
         const dayExp = de.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+        // Net Total = Cash on Hand minus expenses only (GCash is not deducted)
+        const netDay = cashOnHand - dayExp;
         const [yy, mm, dd] = ds.split('-').map(Number);
         const dayName = new Date(yy, mm - 1, dd).toLocaleString('en-US', { weekday: 'long' });
 
@@ -886,12 +1128,13 @@ function renderWeeklyTable() {
                 <td class="px-4 py-3 text-right font-mono text-emerald-700">₱${sales.toFixed(2)}</td>
                 <td class="px-4 py-3 text-right font-mono text-blue-500">₱${gcash.toFixed(2)}</td>
                 <td class="px-4 py-3 text-right font-mono text-amber-500">${dayExp > 0 ? '₱' + dayExp.toFixed(2) : '—'}</td>
-                <td class="px-4 py-3 text-right font-mono">₱${cash.toFixed(2)}</td>
+                <td class="px-4 py-3 text-right font-mono">₱${cashOnHand.toFixed(2)}</td>
+                <td class="px-4 py-3 text-right font-mono font-bold text-slate-800">₱${netDay.toFixed(2)}</td>
             </tr>`;
 
         grandSales    += sales;
         grandGCash    += gcash;
-        grandCash     += cash;
+        grandCash     += cashOnHand;
         grandExpenses += dayExp;
     });
 
@@ -908,10 +1151,12 @@ function renderWeeklyTable() {
         });
     }
 
+    const grandNet = grandCash - grandExpenses;
     document.getElementById('weekly-total-sales').innerHTML    = `₱${grandSales.toFixed(2)}`;
     document.getElementById('weekly-total-gcash').innerHTML    = `₱${grandGCash.toFixed(2)}`;
     document.getElementById('weekly-total-expenses').innerHTML = `₱${grandExpenses.toFixed(2)}`;
     document.getElementById('weekly-total-cash').innerHTML     = `₱${grandCash.toFixed(2)}`;
+    document.getElementById('weekly-total-net').innerHTML      = `₱${grandNet.toFixed(2)}`;
     document.getElementById('weekly-total-expense').innerHTML  = `₱${grandExpenses.toFixed(2)}`;
 }
 
