@@ -41,8 +41,12 @@ switch($action) {
     case 'logout':        logout();           break;
     case 'saveExpense':   saveExpense();      break;
     case 'getExpenses':   getExpenses();      break;
-    case 'deleteLog':     deleteLog();        break;
-    case 'updateLog':     updateLog();        break;
+    case 'deleteLog':            deleteLog();             break;
+    case 'updateLog':            updateLog();             break;
+    case 'getNotifications':     getNotifications();      break;
+    case 'markNotificationsRead': markNotificationsRead(); break;
+    case 'saveDeposit':          saveDeposit();           break;
+    case 'getDeposits':          getDeposits();           break;
     default:              echo json_encode(['error' => 'Invalid action']); break;
 }
 
@@ -297,6 +301,19 @@ function deleteLog() {
     }
 
     try {
+        // Fetch record details before deleting (for audit log)
+        $fetch = $pdo->prepare("SELECT name, or_number, cart_number, employee_username FROM rental_logs WHERE id = ?");
+        $fetch->execute([$id]);
+        $rec = $fetch->fetch(PDO::FETCH_ASSOC);
+
+        if (!$rec) {
+            echo json_encode(['success' => false, 'message' => 'Record not found']);
+            return;
+        }
+
+        $detail = "Customer: {$rec['name']}, OR: {$rec['or_number']}, Cart: {$rec['cart_number']}";
+        $recordOwner = $rec['employee_username'];
+
         // Branch accounts can only delete their own records; admin can delete any
         if ($_SESSION['user']['role'] === 'admin') {
             $stmt = $pdo->prepare("DELETE FROM rental_logs WHERE id = ?");
@@ -304,7 +321,30 @@ function deleteLog() {
         } else {
             $stmt = $pdo->prepare("DELETE FROM rental_logs WHERE id = ? AND employee_username = ?");
             $stmt->execute([$id, $_SESSION['user']['username']]);
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(['success' => false, 'message' => 'Record not found or access denied']);
+                return;
+            }
         }
+
+        // Always write audit log — admin actions use the record owner as context
+        $now = new DateTime('now', new DateTimeZone('Asia/Manila'));
+        $actorUsername = $_SESSION['user']['username'];
+        $actorRole     = $_SESSION['user']['role'];
+        $auditDetail   = $actorRole === 'admin'
+            ? "[Admin deleted] {$detail} (originally by: {$recordOwner})"
+            : "[Branch deleted] {$detail}";
+
+        try {
+            $logStmt = $pdo->prepare("
+                INSERT INTO audit_log (employee_username, action_type, record_id, detail, created_at, is_read)
+                VALUES (?, 'DELETE', ?, ?, ?, 0)
+            ");
+            $logStmt->execute([$actorUsername, $id, $auditDetail, $now->format('Y-m-d H:i:s')]);
+        } catch(PDOException $le) {
+            error_log('Audit log error (delete): ' . $le->getMessage());
+        }
+
         echo json_encode(['success' => true]);
     } catch(PDOException $e) {
         error_log($e->getMessage());
@@ -325,7 +365,7 @@ function updateLog() {
     $id = isset($data['id']) ? (int)$data['id'] : 0;
 
     if ($id <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Invalid record ID']);
+        echo json_encode(['success' => false, 'message' => 'Invalid record ID: ' . ($data['id'] ?? 'missing')]);
         return;
     }
 
@@ -358,6 +398,10 @@ function updateLog() {
                 $data['return_status'] ?? 'Pending',
                 $id
             ]);
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(['success' => false, 'message' => 'Record not found']);
+                return;
+            }
         } else {
             // Branch can only edit their own records
             $stmt = $pdo->prepare("
@@ -388,11 +432,157 @@ function updateLog() {
                 $id,
                 $_SESSION['user']['username']
             ]);
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(['success' => false, 'message' => 'Record not found or you do not have permission to edit it']);
+                return;
+            }
         }
+        // Always write audit log for edits — admin and branch alike
+        $now = new DateTime('now', new DateTimeZone('Asia/Manila'));
+        $actorUsername = $_SESSION['user']['username'];
+        $actorRole     = $_SESSION['user']['role'];
+        $detail = "Customer: " . ($data['name'] ?? '?') . ", OR: " . ($data['or_number'] ?? '?') . ", Cart: " . ($data['cart_number'] ?? '?');
+        $auditDetail = $actorRole === 'admin'
+            ? "[Admin edited] {$detail}"
+            : "[Branch edited] {$detail}";
+
+        try {
+            $logStmt = $pdo->prepare("
+                INSERT INTO audit_log (employee_username, action_type, record_id, detail, created_at, is_read)
+                VALUES (?, 'EDIT', ?, ?, ?, 0)
+            ");
+            $logStmt->execute([$actorUsername, $id, $auditDetail, $now->format('Y-m-d H:i:s')]);
+        } catch(PDOException $le) {
+            error_log('Audit log error (edit): ' . $le->getMessage());
+        }
+
         echo json_encode(['success' => true]);
     } catch(PDOException $e) {
         error_log($e->getMessage());
-        echo json_encode(['success' => false, 'message' => 'Failed to update record']);
+        echo json_encode(['success' => false, 'message' => 'DB error: ' . $e->getMessage()]);
     }
 }
+
+// ── GET NOTIFICATIONS (admin only) ──
+function getNotifications() {
+    global $pdo;
+    if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
+        echo json_encode([]);
+        return;
+    }
+    try {
+        $stmt = $pdo->query("
+            SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 50
+        ");
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    } catch(PDOException $e) {
+        error_log($e->getMessage());
+        echo json_encode([]);
+    }
+}
+
+// ── MARK NOTIFICATIONS READ ──
+function markNotificationsRead() {
+    global $pdo;
+    if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
+        echo json_encode(['success' => false]);
+        return;
+    }
+    try {
+        $pdo->exec("UPDATE audit_log SET is_read = 1 WHERE is_read = 0");
+        echo json_encode(['success' => true]);
+    } catch(PDOException $e) {
+        error_log($e->getMessage());
+        echo json_encode(['success' => false]);
+    }
+}
+
+// ── SAVE DEPOSIT ──
+function saveDeposit() {
+    global $pdo;
+    if (!isset($_SESSION['user'])) {
+        echo json_encode(['success' => false, 'message' => 'Not logged in']);
+        return;
+    }
+
+    $data = json_decode(file_get_contents('php://input'), true);
+
+    if (!$data) {
+        echo json_encode(['success' => false, 'message' => 'Invalid or empty request body']);
+        return;
+    }
+
+    $amount = floatval($data['amount'] ?? 0);
+    if ($amount <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Amount must be greater than zero']);
+        return;
+    }
+
+    $now = new DateTime('now', new DateTimeZone('Asia/Manila'));
+
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS deposits (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                employee_username VARCHAR(100) NOT NULL,
+                deposit_date DATE NOT NULL,
+                deposit_time TIME NOT NULL,
+                description VARCHAR(255) DEFAULT '',
+                amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL
+            )
+        ");
+
+        $stmt = $pdo->prepare("
+            INSERT INTO deposits (employee_username, deposit_date, deposit_time, description, amount, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $_SESSION['user']['username'],
+            $now->format('Y-m-d'),
+            $now->format('H:i:s'),
+            $data['description'] ?? '',
+            $amount,
+            $now->format('Y-m-d H:i:s')
+        ]);
+        echo json_encode(['success' => true]);
+    } catch(PDOException $e) {
+        error_log($e->getMessage());
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+}
+
+// ── GET DEPOSITS ──
+function getDeposits() {
+    global $pdo;
+    if (!isset($_SESSION['user'])) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Unauthorized']);
+        return;
+    }
+
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS deposits (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                employee_username VARCHAR(100) NOT NULL,
+                deposit_date DATE NOT NULL,
+                deposit_time TIME NOT NULL,
+                description VARCHAR(255) DEFAULT '',
+                amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL
+            )
+        ");
+
+        $stmt = $pdo->query("
+            SELECT * FROM deposits
+            ORDER BY deposit_date DESC, deposit_time DESC
+        ");
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    } catch(PDOException $e) {
+        error_log($e->getMessage());
+        echo json_encode([]);
+    }
+}
+
 ?>

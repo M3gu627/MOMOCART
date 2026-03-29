@@ -3,11 +3,61 @@ let allLogs = [];
 let currentPage = 1;
 let filteredTotal = 0;
 let allExpenses = [];
+let allDeposits = [];
 const ITEMS_PER_PAGE = 10;
+
+// ── PERSISTENT STORES (localStorage-backed) ──
+// All overrides survive page refresh by reading/writing localStorage.
+
+const LS_KEY_MONTHLY   = 'momocart_monthlyOverrides';
+const LS_KEY_DEPOSIT   = 'momocart_depositRowsByMonth';
+const LS_KEY_GRANDTOT  = 'momocart_grandTotalOverrides';
+const LS_KEY_DEP_OV    = 'momocart_depositOverrides';
+const LS_KEY_RECEIPTS  = 'momocart_depositReceipts'; // depositId → base64 image
+
+function _lsGet(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null') || {}; } catch(e) { return {}; }
+}
+function _lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { /* quota ignore */ }
+}
+
+// Proxy-like accessors so existing code using [key] still works
+// Monthly row overrides
+const monthlyOverrides = new Proxy(_lsGet(LS_KEY_MONTHLY), {
+    set(t, k, v) { t[k] = v; _lsSet(LS_KEY_MONTHLY, t); return true; },
+    deleteProperty(t, k) { delete t[k]; _lsSet(LS_KEY_MONTHLY, t); return true; }
+});
+
+// Deposit manual rows
+const depositRowsByMonth = new Proxy(_lsGet(LS_KEY_DEPOSIT), {
+    set(t, k, v) { t[k] = v; _lsSet(LS_KEY_DEPOSIT, t); return true; },
+    deleteProperty(t, k) { delete t[k]; _lsSet(LS_KEY_DEPOSIT, t); return true; }
+});
+
+// Grand total overrides
+const grandTotalOverrides = new Proxy(_lsGet(LS_KEY_GRANDTOT), {
+    set(t, k, v) { t[k] = v; _lsSet(LS_KEY_GRANDTOT, t); return true; },
+    deleteProperty(t, k) { delete t[k]; _lsSet(LS_KEY_GRANDTOT, t); return true; }
+});
+// Notification polling timer
+let notifPollTimer = null;
 
 // Always send session cookie with every API request
 function apiFetch(url, options = {}) {
     return fetch(url, { credentials: 'include', ...options });
+}
+
+// ── TIME FORMAT HELPER (24h → 12h AM/PM) ──
+function to12h(timeStr) {
+    if (!timeStr || timeStr === '--:--' || timeStr === '00:00') return null;
+    const [hStr, mStr] = timeStr.split(':');
+    let h = parseInt(hStr, 10);
+    const m = mStr || '00';
+    if (isNaN(h)) return timeStr;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${m} ${ampm}`;
 }
 
 // Admin filter state
@@ -136,13 +186,23 @@ async function logout() {
 // ── DELETE LOG ──
 let pendingDeleteId = null;
 
-// Event delegation — handles delete clicks for all dynamically rendered rows
+// Single unified event delegation — edit + delete, no conflicts
 document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.delete-btn');
-    if (!btn) return;
-    const id   = parseInt(btn.dataset.deleteId);
-    const name = btn.dataset.deleteName;
-    showDeleteModal(id, name);
+    const editBtn = e.target.closest('.edit-btn');
+    if (editBtn) {
+        e.stopPropagation();
+        const id = parseInt(editBtn.dataset.editId);
+        if (id) openEditPanel(id);
+        return;
+    }
+    const deleteBtn = e.target.closest('.delete-btn');
+    if (deleteBtn) {
+        e.stopPropagation();
+        const id   = parseInt(deleteBtn.dataset.deleteId);
+        const name = deleteBtn.dataset.deleteName;
+        showDeleteModal(id, name);
+        return;
+    }
 });
 
 function showDeleteModal(id, name) {
@@ -178,17 +238,20 @@ async function confirmDelete() {
 // ── DASHBOARD LOGIC ──
 async function loadLogs() {
     try {
-        const [logsRes, expRes] = await Promise.all([
+        const [logsRes, expRes, depRes] = await Promise.all([
             apiFetch('api.php?action=getLogs'),
-            apiFetch('api.php?action=getExpenses')
+            apiFetch('api.php?action=getExpenses'),
+            apiFetch('api.php?action=getDeposits')
         ]);
         const logsData = await logsRes.json();
         const expData  = await expRes.json();
+        const depData  = await depRes.json();
         allLogs     = Array.isArray(logsData) ? logsData : [];
         allExpenses = Array.isArray(expData)  ? expData  : [];
+        allDeposits = Array.isArray(depData)  ? depData  : [];
     } catch(e) {
         console.error('loadLogs error:', e);
-        allLogs = []; allExpenses = [];
+        allLogs = []; allExpenses = []; allDeposits = [];
     }
     renderCurrentTab();
 }
@@ -226,13 +289,26 @@ function renderApp() {
 
         document.getElementById('th-employee').classList.remove('hidden');
 
-        // Admin gets all tabs — show Weekly, Monthly, Yearly
-        ['tab-weekly', 'tab-monthly', 'tab-yearly'].forEach(id => {
+        // Admin gets all tabs — show Weekly, Monthly, Yearly, Daily
+        ['tab-daily', 'tab-weekly', 'tab-monthly', 'tab-yearly'].forEach(id => {
             const btn = document.getElementById(id);
             if (btn) btn.classList.remove('hidden');
         });
+        // Hide employee-only tabs from admin
+        ['tab-expenses', 'tab-deposit'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.add('hidden');
+        });
+        // Also hide deposit button from admin action bar (already hidden via action-buttons-wrap)
+        const depBtn = document.getElementById('deposit-btn');
+        if (depBtn) depBtn.classList.add('hidden');
 
         buildAdminToolbar();
+
+        // Show notification bell (admin only) and start polling
+        const notifWrap = document.getElementById('notif-wrap');
+        if (notifWrap) notifWrap.classList.remove('hidden');
+        startNotifPolling();
     } else {
         // Reveal action buttons only for non-admin employees
         const actionWrap = document.getElementById('action-buttons-wrap');
@@ -240,10 +316,15 @@ function renderApp() {
         const fabBtn = document.getElementById('fab-btn');
         if (fabBtn) fabBtn.classList.remove('hidden');
 
-        // Hide Weekly, Monthly, Yearly tabs — branch accounts only see Logs & Daily
-        ['tab-weekly', 'tab-monthly', 'tab-yearly'].forEach(id => {
+        // Hide Weekly, Monthly, Yearly, Daily tabs — branch accounts see Logs, Expenses, Deposit
+        ['tab-daily', 'tab-weekly', 'tab-monthly', 'tab-yearly'].forEach(id => {
             const btn = document.getElementById(id);
             if (btn) btn.classList.add('hidden');
+        });
+        // Show employee-specific tabs
+        ['tab-expenses', 'tab-deposit'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('hidden');
         });
     }
     currentTab = 0;
@@ -365,15 +446,19 @@ function renderTable() {
         pageTotal += rowTotal;
 
         const isUnlimited = !log.time_out || log.time_out === '00:00';
+        const timeInDisplay = to12h(log.time_in) || '—';
         const timeOutDisplay = isUnlimited
-            ? '<span class="text-slate-400 text-[10px] font-mono">--:-- No Limit</span>'
-            : '<span class="font-mono text-rose-500">' + log.time_out + '</span>';
+            ? '<span class="text-slate-400 text-[10px] font-mono">No Limit</span>'
+            : `<span class="font-mono text-rose-500">${to12h(log.time_out)}</span>`;
+        const returnTimeDisplay = log.return_time
+            ? `<span class="font-mono text-slate-600">${to12h(log.return_time) || log.return_time}</span>`
+            : '<span class="text-slate-300">—</span>';
 
         const actionCell = currentUser.role === 'admin'
             ? `<td class="px-4 py-4 text-center">
                 <div class="flex flex-col items-center gap-1">
-                    <button onclick="openEditModal(${log.id})"
-                        class="action-btn bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors">
+                    <button data-edit-id="${log.id}"
+                        class="action-btn edit-btn bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors">
                         EDIT
                     </button>
                     <button data-delete-id="${log.id}" data-delete-name="${log.name.replace(/"/g, '&quot;')}"
@@ -384,11 +469,11 @@ function renderTable() {
                </td>`
             : `<td class="px-4 py-4 text-center">
                 <div class="flex flex-col items-center gap-1">
-                    ${isReturned
-                        ? `<span class="text-slate-400 text-[10px]">✓ ${log.return_time}</span>`
+                    ${isReturned || log.return_time
+                        ? `<span class="text-emerald-600 text-[10px] font-bold">✓ ${to12h(log.return_time) || log.return_time}</span>`
                         : `<button onclick="markReturned(${log.id})" class="bg-amber-400 text-white px-3 py-1 rounded-xl text-[10px] font-bold">RETURN</button>`}
-                    <button onclick="openEditModal(${log.id})"
-                        class="action-btn bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors mt-1">
+                    <button data-edit-id="${log.id}"
+                        class="action-btn edit-btn bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors mt-1">
                         EDIT
                     </button>
                     <button data-delete-id="${log.id}" data-delete-name="${log.name.replace(/"/g, '&quot;')}"
@@ -406,9 +491,9 @@ function renderTable() {
             <td class="px-4 py-4 font-mono text-[10px]">${log.or_number}</td>
             <td class="px-4 py-4">${log.cart_number}</td>
             <td class="px-4 py-4">${log.valid_id}</td>
-            <td class="px-4 py-4 font-mono text-emerald-600">${log.time_in}</td>
-            <td class="px-4 py-4">${timeOutDisplay}</td>
-            <td class="px-4 py-4 font-mono text-slate-500">${log.return_time || '--:--'}</td>
+            <td class="px-4 py-4 font-mono text-emerald-600 whitespace-nowrap">${timeInDisplay}</td>
+            <td class="px-4 py-4 whitespace-nowrap">${timeOutDisplay}</td>
+            <td class="px-4 py-4 whitespace-nowrap">${returnTimeDisplay}</td>
             <td class="px-4 py-4">${(()=>{
                 if (!log.return_time || !log.time_out || log.time_out === '00:00') return '<span class="text-slate-300">—</span>';
                 const [outH, outM] = log.time_out.split(':').map(Number);
@@ -496,9 +581,23 @@ function autoCalculateTimeOut() {
 
 
 function stampReturnNow() {
+    const returnInput = document.getElementById('form-return-time');
+    // Don't overwrite if already filled
+    if (returnInput.value) return;
     const now = new Date();
-    document.getElementById('form-return-time').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    returnInput.value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     calcOvertime();
+    updateReturnButtonState();
+}
+
+function updateReturnButtonState() {
+    const returnInput = document.getElementById('form-return-time');
+    const returnBtn   = document.getElementById('form-return-btn');
+    if (!returnBtn) return;
+    const hasValue = !!returnInput.value;
+    returnBtn.disabled = hasValue;
+    returnBtn.classList.toggle('opacity-40', hasValue);
+    returnBtn.classList.toggle('cursor-not-allowed', hasValue);
 }
 
 function calcOvertime() {
@@ -515,7 +614,7 @@ function calcOvertime() {
         label.textContent = '--:--:--';
     };
 
-    if (!timeoutStr || !returnStr || timeoutStr === '00:00') { reset(); return; }
+    if (!timeoutStr || !returnStr || timeoutStr === '00:00') { reset(); updateReturnButtonState(); return; }
 
     const [outH, outM] = timeoutStr.split(':').map(Number);
     const [retH, retM] = returnStr.split(':').map(Number);
@@ -530,6 +629,7 @@ function calcOvertime() {
     } else {
         reset();
     }
+    updateReturnButtonState();
 }
 
 const PRICES_REGULAR  = { '30': 100, '60': 150, '120': 300, '180': 450, 'unlimited': 600 };
@@ -583,6 +683,7 @@ function showAddModal() {
     timeoutInput.placeholder = '';
     timeoutInput.classList.remove('opacity-40', 'cursor-not-allowed');
     autoSetRentalAmount();
+    updateReturnButtonState();
     document.getElementById('add-modal').showModal();
 }
 function hideAddModal() { document.getElementById('add-modal').close(); }
@@ -594,55 +695,243 @@ function stampTimeInNow() {
     autoCalculateTimeOut();
 }
 
-// ── EDIT MODAL ──
-function openEditModal(id) {
-    const log = allLogs.find(l => l.id === id);
-    if (!log) return;
-    document.getElementById('edit-id').value = log.id;
-    document.getElementById('edit-name').value = log.name || '';
-    document.getElementById('edit-address').value = log.address || '';
-    document.getElementById('edit-waiver').value = log.waiver || '';
-    document.getElementById('edit-or').value = log.or_number || '';
-    document.getElementById('edit-cart').value = log.cart_number || '';
-    document.getElementById('edit-timein').value = log.time_in || '';
-    document.getElementById('edit-timeout').value = log.time_out || '';
-    document.getElementById('edit-return-time').value = log.return_time || '';
-    document.getElementById('edit-validid').value = log.valid_id || 'Regular';
-    document.getElementById('edit-payment').value = log.payment_method || 'Cash';
-    const baseAmount = parseFloat(log.amount_cash >= 0 ? log.amount_cash : (log.amount_gcash >= 0 ? log.amount_gcash : 0)) || 0;
-    const addlAmount = parseFloat(log.additional_cash > 0 ? log.additional_cash : (log.additional_gcash > 0 ? log.additional_gcash : 0)) || 0;
-    document.getElementById('edit-amount').value = baseAmount;
-    document.getElementById('edit-addl').value = addlAmount;
-    document.getElementById('edit-return-status').value = log.return_status || 'Pending';
-    document.getElementById('edit-modal').showModal();
+// Confirm/lock the time-in value and recalculate timeout
+function confirmTimeIn() {
+    const val = document.getElementById('form-timein').value;
+    if (!val) {
+        stampTimeInNow();
+    }
+    autoCalculateTimeOut();
+    autoSetRentalAmount();
 }
 
-function closeEditModal() { document.getElementById('edit-modal').close(); }
+// Confirm/lock the return time value
+function confirmReturnTime() {
+    const returnInput = document.getElementById('form-return-time');
+    if (!returnInput.value) {
+        stampReturnNow();
+    } else {
+        calcOvertime();
+        updateReturnButtonState();
+    }
+}
 
-async function submitEditEntry() {
-    const id = document.getElementById('edit-id').value;
-    const payment = document.getElementById('edit-payment').value;
-    const amount = parseFloat(document.getElementById('edit-amount').value) || 0;
-    const addl   = parseFloat(document.getElementById('edit-addl').value) || 0;
+// ── EDIT PANEL ──
+
+function openEditPanel(id) {
+    const numId = parseInt(id, 10);
+    const log = allLogs.find(l => parseInt(l.id, 10) === numId);
+    if (!log) { console.warn('Edit: log not found for id', numId); return; }
+
+    const baseAmount = parseFloat(log.amount_cash >= 0 ? log.amount_cash : (log.amount_gcash >= 0 ? log.amount_gcash : 0)) || 0;
+    const addlAmount = parseFloat(log.additional_cash > 0 ? log.additional_cash : (log.additional_gcash > 0 ? log.additional_gcash : 0)) || 0;
+
+    const existing = document.getElementById('edit-panel');
+    if (existing) existing.remove();
+
+    const esc = s => (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    const panel = document.createElement('div');
+    panel.id = 'edit-panel';
+    Object.assign(panel.style, {
+        position:'fixed', inset:'0', zIndex:'9999',
+        display:'flex', flexDirection:'column',
+        background:'#f1f5f9', fontFamily:"'Plus Jakarta Sans',sans-serif",
+        overflow:'hidden'
+    });
+
+    panel.innerHTML = `
+        <div style="background:#0f172a;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div>
+                <div style="color:#fff;font-weight:800;font-size:16px;letter-spacing:-0.01em;">Edit Log Entry</div>
+                <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;margin-top:3px;">Record ID #${log.id} &nbsp;&middot;&nbsp; ${esc(log.employee_username)}</div>
+            </div>
+            <button id="ep-close-btn" style="color:#94a3b8;background:rgba(255,255,255,0.06);border:none;border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;">&#x2715;</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:24px 20px;display:flex;justify-content:center;align-items:flex-start;">
+          <div style="width:100%;max-width:900px;">
+            <div id="ep-form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+
+              <!-- LEFT COLUMN: Customer info -->
+              <div style="background:#fff;border-radius:20px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06);display:flex;flex-direction:column;gap:14px;">
+                <p style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;margin:0;">Customer Information</p>
+                <input id="ep-id" type="hidden" value="${log.id}">
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Customer Name</label>
+                    <input id="ep-name" type="text" value="${esc(log.name)}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Address</label>
+                    <input id="ep-address" type="text" value="${esc(log.address)}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Waiver</label>
+                    <input id="ep-waiver" type="text" value="${esc(log.waiver)}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">O.R. #</label>
+                    <input id="ep-or" type="text" value="${esc(log.or_number)}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:90px 1fr;gap:12px;">
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Cart #</label>
+                    <input id="ep-cart" type="text" value="${esc(log.cart_number)}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Valid ID</label>
+                    <select id="ep-validid" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                      <option value="Regular" ${log.valid_id==='Regular'?'selected':''}>Regular</option>
+                      <option value="Senior"  ${log.valid_id==='Senior'?'selected':''}>Senior</option>
+                      <option value="PWD"     ${log.valid_id==='PWD'?'selected':''}>PWD</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Time In</label>
+                    <input id="ep-timein" type="time" value="${log.time_in||''}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Time Out</label>
+                    <input id="ep-timeout" type="time" value="${log.time_out||''}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Return Time</label>
+                    <input id="ep-return-time" type="time" value="${log.return_time||''}" class="ep-input" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                  </div>
+                </div>
+
+                <div>
+                  <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Return Status</label>
+                  <select id="ep-return-status" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                    <option value="Pending"  ${(log.return_status||'Pending')==='Pending'?'selected':''}>Pending</option>
+                    <option value="Returned" ${log.return_status==='Returned'?'selected':''}>Returned</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- RIGHT COLUMN: Payment + actions -->
+              <div style="display:flex;flex-direction:column;gap:16px;">
+                <div style="background:#fff;border-radius:20px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06);display:flex;flex-direction:column;gap:14px;">
+                  <p style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;margin:0;">Payment Details</p>
+                  <div>
+                    <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Method</label>
+                    <select id="ep-payment" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;">
+                      <option value="Cash"  ${log.payment_method==='Cash'?'selected':''}>Cash</option>
+                      <option value="GCash" ${log.payment_method==='GCash'?'selected':''}>GCash</option>
+                      <option value="Other" ${log.payment_method==='Other'?'selected':''}>Other</option>
+                    </select>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div>
+                      <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Base Amount</label>
+                      <input id="ep-amount" type="number" step="0.01" value="${baseAmount}" oninput="epUpdateTotal()" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;text-align:right;font-family:monospace;">
+                    </div>
+                    <div>
+                      <label style="display:block;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">Additional Charges</label>
+                      <input id="ep-addl" type="number" step="0.01" value="${addlAmount}" oninput="epUpdateTotal()" style="width:100%;padding:12px 14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;box-sizing:border-box;outline:none;text-align:right;font-family:monospace;">
+                    </div>
+                  </div>
+                  <div style="background:linear-gradient(135deg,#ecfdf5,#f0fdf4);border:1.5px solid #a7f3d0;border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+                    <span style="font-size:10px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.1em;">Entry Total</span>
+                    <span id="ep-live-total" style="font-size:26px;font-weight:800;color:#047857;font-family:monospace;">&#x20B1;${(baseAmount+addlAmount).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div style="background:#fff;border-radius:20px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+                  <div id="ep-error" style="display:none;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:12px 16px;color:#dc2626;font-size:12px;font-weight:600;margin-bottom:14px;"></div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <button id="ep-cancel" style="padding:15px;border-radius:14px;border:1.5px solid #e2e8f0;background:#fff;color:#475569;font-weight:700;font-size:14px;cursor:pointer;">Cancel</button>
+                    <button id="ep-save" style="padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 4px 14px rgba(16,185,129,0.3);">Save Changes</button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Responsive collapse
+    function _epResize() {
+        const g = document.getElementById('ep-form-grid');
+        if (g) g.style.gridTemplateColumns = window.innerWidth < 640 ? '1fr' : '1fr 1fr';
+    }
+    _epResize();
+    panel._resizeH = _epResize;
+    window.addEventListener('resize', _epResize);
+
+    document.getElementById('ep-close-btn').addEventListener('click', closeEditPanel);
+    document.getElementById('ep-cancel').addEventListener('click', closeEditPanel);
+    document.getElementById('ep-save').addEventListener('click', submitEditPanel);
+
+    panel._keyH = e => { if (e.key === 'Escape') closeEditPanel(); };
+    document.addEventListener('keydown', panel._keyH);
+
+    setTimeout(() => { const f = document.getElementById('ep-name'); if(f) f.focus(); }, 50);
+}
+
+// Live total updater for edit panel
+function epUpdateTotal() {
+    const amt  = parseFloat(document.getElementById('ep-amount')?.value) || 0;
+    const addl = parseFloat(document.getElementById('ep-addl')?.value)   || 0;
+    const el = document.getElementById('ep-live-total');
+    if (el) el.textContent = '\u20B1' + (amt + addl).toFixed(2);
+}
+
+
+function closeEditPanel() {
+    const panel = document.getElementById('edit-panel');
+    if (!panel) return;
+    if (panel._resizeH) window.removeEventListener('resize', panel._resizeH);
+    if (panel._keyH)    document.removeEventListener('keydown', panel._keyH);
+    panel.remove();
+}
+
+async function submitEditPanel() {
+    const id = parseInt(document.getElementById('ep-id').value, 10);
+    if (!id || id <= 0) return;
+
+    const saveBtn = document.getElementById('ep-save');
+    const errEl   = document.getElementById('ep-error');
+    saveBtn.textContent = 'Saving…';
+    saveBtn.disabled = true;
+    errEl.style.display = 'none';
+
+    const payment = document.getElementById('ep-payment').value;
+    const amount  = parseFloat(document.getElementById('ep-amount').value) || 0;
+    const addl    = parseFloat(document.getElementById('ep-addl').value)   || 0;
+
     const data = {
         id,
-        name:          document.getElementById('edit-name').value,
-        address:       document.getElementById('edit-address').value,
-        waiver:        document.getElementById('edit-waiver').value,
-        or_number:     document.getElementById('edit-or').value,
-        cart_number:   document.getElementById('edit-cart').value,
-        time_in:       document.getElementById('edit-timein').value,
-        time_out:      document.getElementById('edit-timeout').value,
-        return_time:   document.getElementById('edit-return-time').value,
-        valid_id:      document.getElementById('edit-validid').value,
-        payment_method: payment,
-        amount_cash:   payment === 'Cash'  ? amount : -1,
-        amount_gcash:  payment === 'GCash' ? amount : -1,
+        name:             document.getElementById('ep-name').value,
+        address:          document.getElementById('ep-address').value,
+        waiver:           document.getElementById('ep-waiver').value,
+        or_number:        document.getElementById('ep-or').value,
+        cart_number:      document.getElementById('ep-cart').value,
+        time_in:          document.getElementById('ep-timein').value,
+        time_out:         document.getElementById('ep-timeout').value,
+        return_time:      document.getElementById('ep-return-time').value,
+        valid_id:         document.getElementById('ep-validid').value,
+        payment_method:   payment,
+        amount_cash:      payment === 'Cash'  ? amount : -1,
+        amount_gcash:     payment === 'GCash' ? amount : -1,
         additional_cash:  payment === 'Cash'  ? addl : 0,
         additional_gcash: payment === 'GCash' ? addl : 0,
-        total:         amount + addl,
-        return_status: document.getElementById('edit-return-status').value,
+        total:            amount + addl,
+        return_status:    document.getElementById('ep-return-status').value,
     };
+
     try {
         const res = await apiFetch('api.php?action=updateLog', {
             method: 'POST',
@@ -651,13 +940,19 @@ async function submitEditEntry() {
         });
         const result = await res.json();
         if (result.success) {
-            closeEditModal();
+            closeEditPanel();
             loadLogs();
         } else {
-            alert('❌ Failed to update: ' + (result.message || 'Unknown error'));
+            errEl.textContent = '❌ ' + (result.message || 'Failed to update. Please try again.');
+            errEl.style.display = 'block';
+            saveBtn.textContent = 'Save Changes';
+            saveBtn.disabled = false;
         }
     } catch (e) {
-        alert('❌ Network error. Please try again.');
+        errEl.textContent = '❌ Network error. Please try again.';
+        errEl.style.display = 'block';
+        saveBtn.textContent = 'Save Changes';
+        saveBtn.disabled = false;
     }
 }
 
@@ -720,14 +1015,14 @@ function exportToCSV() {
 let currentTab = 0;
 
 function switchTab(tab) {
-    // Branch accounts may only access Logs (0) and Daily (1)
-    if (currentUser && currentUser.role !== 'admin' && tab > 1) return;
+    // Branch accounts can only access Logs(0), Expenses(5), Deposit(6)
+    if (currentUser && currentUser.role !== 'admin' && [1,2,3,4].includes(tab)) return;
 
     currentTab = tab;
     document.querySelectorAll('#tab-container button').forEach((btn, i) => {
         btn.classList.toggle('active', i === tab);
     });
-    ['logs-content','daily-content','weekly-content','monthly-content','yearly-content']
+    ['logs-content','daily-content','weekly-content','monthly-content','yearly-content','expenses-content','deposit-content']
         .forEach(id => { const el = document.getElementById(id); if(el) el.classList.add('hidden'); });
 
     if (tab === 0) {
@@ -745,6 +1040,12 @@ function switchTab(tab) {
     } else if (tab === 4) {
         document.getElementById('yearly-content').classList.remove('hidden');
         renderYearlySummary();
+    } else if (tab === 5) {
+        document.getElementById('expenses-content').classList.remove('hidden');
+        renderExpensesTab();
+    } else if (tab === 6) {
+        document.getElementById('deposit-content').classList.remove('hidden');
+        renderDepositTab();
     }
 }
 
@@ -1172,6 +1473,217 @@ function renderCurrentTab() {
     else if (currentTab === 2) renderWeeklySummary();
     else if (currentTab === 3) renderMonthlySummary();
     else if (currentTab === 4) renderYearlySummary();
+    else if (currentTab === 5) renderExpensesTab();
+    else if (currentTab === 6) renderDepositTab();
+}
+
+// ── EXPENSES TAB (employee view — today only) ──
+function renderExpensesTab() {
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+
+    const label = document.getElementById('expenses-date-label');
+    if (label) {
+        const [y, m, d] = todayStr.split('-').map(Number);
+        label.textContent = new Date(y, m - 1, d).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
+    }
+
+    const myExpenses = allExpenses.filter(e =>
+        e.employee_username === currentUser.username &&
+        e.expense_date === todayStr
+    );
+
+    const tbody = document.getElementById('expenses-tab-body');
+    const emptyEl = document.getElementById('expenses-tab-empty');
+    const totalEl = document.getElementById('expenses-tab-total');
+    tbody.innerHTML = '';
+
+    if (myExpenses.length === 0) {
+        emptyEl.classList.remove('hidden');
+        totalEl.textContent = '₱0.00';
+        return;
+    }
+    emptyEl.classList.add('hidden');
+
+    let total = 0;
+    myExpenses.forEach(exp => {
+        total += parseFloat(exp.amount || 0);
+        tbody.innerHTML += `
+            <tr class="hover:bg-slate-50 border-b border-slate-100">
+                <td class="px-4 py-3 text-slate-500">${exp.expense_date}</td>
+                <td class="px-4 py-3">${exp.particulars}</td>
+                <td class="px-4 py-3 text-right font-mono text-amber-600">₱${parseFloat(exp.amount).toFixed(2)}</td>
+            </tr>`;
+    });
+    totalEl.textContent = `₱${total.toFixed(2)}`;
+}
+
+// ── DEPOSIT TAB (employee view — today only) ──
+function renderDepositTab() {
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+
+    const label = document.getElementById('deposit-date-label');
+    if (label) {
+        const [y, m, d] = todayStr.split('-').map(Number);
+        label.textContent = new Date(y, m - 1, d).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
+    }
+
+    const myDeposits = allDeposits.filter(dep =>
+        dep.employee_username === currentUser.username &&
+        dep.deposit_date === todayStr
+    );
+
+    const tbody = document.getElementById('deposit-tab-body');
+    const emptyEl = document.getElementById('deposit-tab-empty');
+    const totalEl = document.getElementById('deposit-tab-total');
+    tbody.innerHTML = '';
+
+    if (myDeposits.length === 0) {
+        emptyEl.classList.remove('hidden');
+        totalEl.textContent = '₱0.00';
+        return;
+    }
+    emptyEl.classList.add('hidden');
+
+    let total = 0;
+    myDeposits.forEach(dep => {
+        total += parseFloat(dep.amount || 0);
+        const timeDisplay = dep.deposit_time ? dep.deposit_time.slice(0,5) : '—';
+        const [hStr, mStr] = timeDisplay.split(':');
+        let h = parseInt(hStr, 10);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        const time12 = isNaN(h) ? timeDisplay : `${h}:${mStr} ${ampm}`;
+        tbody.innerHTML += `
+            <tr class="hover:bg-slate-50 border-b border-slate-100">
+                <td class="px-4 py-3 text-slate-500">${dep.deposit_date}</td>
+                <td class="px-4 py-3 font-mono text-blue-600">${time12}</td>
+                <td class="px-4 py-3">${dep.description || '—'}</td>
+                <td class="px-4 py-3 text-right font-mono text-blue-700">₱${parseFloat(dep.amount).toFixed(2)}</td>
+            </tr>`;
+    });
+    totalEl.textContent = `₱${total.toFixed(2)}`;
+}
+
+// ── DEPOSIT MODAL ──
+// Temp store for current deposit's selected receipt image (base64)
+let _pendingReceiptBase64 = null;
+
+function showDepositModal() {
+    document.getElementById('dep-amount').value = '';
+    document.getElementById('dep-description').value = '';
+    // Reset photo state
+    _pendingReceiptBase64 = null;
+    const fileInput = document.getElementById('dep-receipt-file');
+    if (fileInput) fileInput.value = '';
+    _depReceiptShowPlaceholder();
+    document.getElementById('deposit-modal').showModal();
+    // Focus amount after dialog opens
+    setTimeout(() => { const el = document.getElementById('dep-amount'); if(el) el.focus(); }, 150);
+}
+
+function hideDepositModal() {
+    document.getElementById('deposit-modal').close();
+    _pendingReceiptBase64 = null;
+}
+
+// Called when user selects/captures a receipt image
+function onDepositReceiptSelected(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    // Enforce 5MB limit
+    if (file.size > 5 * 1024 * 1024) {
+        alert('❌ Image is too large. Please use a photo under 5MB.');
+        input.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        _pendingReceiptBase64 = e.target.result; // full data URL
+        _depReceiptShowPreview(_pendingReceiptBase64);
+    };
+    reader.readAsDataURL(file);
+}
+
+function _depReceiptShowPlaceholder() {
+    const placeholder = document.getElementById('dep-receipt-placeholder');
+    const preview     = document.getElementById('dep-receipt-preview');
+    const zone        = document.getElementById('dep-receipt-zone');
+    if (placeholder) placeholder.classList.remove('hidden');
+    if (preview)     preview.classList.add('hidden');
+    if (zone)        zone.style.minHeight = '160px';
+}
+
+function _depReceiptShowPreview(src) {
+    const placeholder = document.getElementById('dep-receipt-placeholder');
+    const preview     = document.getElementById('dep-receipt-preview');
+    const img         = document.getElementById('dep-receipt-img');
+    const zone        = document.getElementById('dep-receipt-zone');
+    if (placeholder) placeholder.classList.add('hidden');
+    if (img)         img.src = src;
+    if (preview)     preview.classList.remove('hidden');
+    if (zone)        zone.style.minHeight = '220px';
+}
+
+function removeDepositReceipt() {
+    _pendingReceiptBase64 = null;
+    const fileInput = document.getElementById('dep-receipt-file');
+    if (fileInput) fileInput.value = '';
+    _depReceiptShowPlaceholder();
+}
+
+async function submitDeposit() {
+    const amount      = parseFloat(document.getElementById('dep-amount').value) || 0;
+    const description = document.getElementById('dep-description').value.trim();
+
+    if (amount <= 0) { alert('Please enter a valid amount'); return; }
+    if (!description) { alert('Please enter a description'); return; }
+
+    const saveBtn = document.getElementById('dep-save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    try {
+        const res = await apiFetch('api.php?action=saveDeposit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, description })
+        });
+
+        const result = await res.json();
+        if (result.success) {
+            // If a receipt photo was attached, store it keyed by deposit date + amount
+            // We use date+amount+description as a stable key since DB doesn't return the new ID
+            if (_pendingReceiptBase64) {
+                const today = new Date();
+                const dateStr = today.getFullYear() + '-' +
+                    String(today.getMonth()+1).padStart(2,'0') + '-' +
+                    String(today.getDate()).padStart(2,'0');
+                const receiptKey = `${dateStr}|${amount}|${description}`;
+                const receipts = _lsGet(LS_KEY_RECEIPTS);
+                receipts[receiptKey] = _pendingReceiptBase64;
+                _lsSet(LS_KEY_RECEIPTS, receipts);
+            }
+            hideDepositModal();
+            await loadLogs();
+            switchTab(6);
+        } else {
+            alert('❌ Failed to save deposit: ' + (result.message || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('❌ Network error. Please try again.');
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg> Save Deposit`;
+        }
+    }
 }
 
 // ── EXPENSES MODAL ──
@@ -1284,98 +1796,552 @@ function onMonthPickerChange() {
 }
 
 function renderMonthlyTable() {
-    const salesBody    = document.getElementById('monthly-sales-body');
-    const expensesBody = document.getElementById('monthly-expenses-body');
-    salesBody.innerHTML    = '';
-    expensesBody.innerHTML = '';
+    const salesBody = document.getElementById('monthly-sales-body');
+    salesBody.innerHTML = '';
 
-    const zero = '₱0.00';
+    const fmt = v => v > 0 ? `₱${v.toLocaleString('en-PH', {minimumFractionDigits:2})}` : '—';
+    const fmtAlways = v => `₱${v.toLocaleString('en-PH', {minimumFractionDigits:2})}`;
+
     if (!selectedMonth) {
-        salesBody.innerHTML    = `<tr><td colspan="5" class="py-12 text-center text-slate-400 italic">Select a month above.</td></tr>`;
-        expensesBody.innerHTML = `<tr><td colspan="3" class="py-10 text-center text-slate-400 italic">—</td></tr>`;
-        ['monthly-total-sales','monthly-total-gcash','monthly-total-expenses','monthly-total-cash','monthly-total-expense']
-            .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = zero; });
+        salesBody.innerHTML = `<tr><td colspan="10" class="py-12 text-center text-slate-400 italic">Select a month above.</td></tr>`;
         return;
+    }
+
+    // Update title labels
+    const [selYear, selMo] = selectedMonth.split('-').map(Number);
+    const monthName = new Date(selYear, selMo - 1, 1).toLocaleString('en-US', {month:'long'}).toUpperCase();
+    const titleEl = document.getElementById('monthly-sales-title');
+    if (titleEl) {
+        const branchName = (currentUser.role === 'admin' && activeBranch !== 'all')
+            ? activeBranch.toUpperCase() + ' SALES ' + selYear
+            : (currentUser.displayName || currentUser.username).toUpperCase() + ' SALES ' + selYear;
+        titleEl.textContent = branchName;
+    }
+    const monthLabelEl = document.getElementById('monthly-sales-month-label');
+    if (monthLabelEl) monthLabelEl.textContent = 'MONTH OF: ' + monthName;
+    const depMonthEl = document.getElementById('monthly-deposit-month-label');
+    if (depMonthEl) depMonthEl.textContent = 'MONTH OF: ' + monthName;
+    const depBranchEl = document.getElementById('monthly-deposit-branch-label');
+    if (depBranchEl) {
+        if (currentUser.role === 'admin' && activeBranch !== 'all') {
+            depBranchEl.textContent = 'BRANCH: ' + activeBranch.toUpperCase();
+            depBranchEl.classList.remove('hidden');
+        } else {
+            depBranchEl.classList.add('hidden');
+        }
     }
 
     const buckets = buildMonthBuckets();
     const bucket  = buckets[selectedMonth] || { logs: [], exps: [] };
     const { logs, exps } = bucket;
 
-    // Group by day within the month
-    const dayGroups = {};
+    // ── GROUP BY DAY+STAFF so each branch gets its own row ──
+    const dayStaffGroups = {};
     logs.forEach(log => {
         const ds = log.created_at.split(' ')[0];
-        if (!dayGroups[ds]) dayGroups[ds] = { logs: [], exps: [] };
-        dayGroups[ds].logs.push(log);
+        const key = `${ds}|${log.employee_username}`;
+        if (!dayStaffGroups[key]) dayStaffGroups[key] = { ds, staff: log.employee_username, logs: [], exps: [] };
+        dayStaffGroups[key].logs.push(log);
     });
     exps.forEach(exp => {
         const ds = exp.expense_date;
-        if (!dayGroups[ds]) dayGroups[ds] = { logs: [], exps: [] };
-        dayGroups[ds].exps.push(exp);
+        const key = `${ds}|${exp.employee_username}`;
+        if (!dayStaffGroups[key]) dayStaffGroups[key] = { ds, staff: exp.employee_username, logs: [], exps: [] };
+        dayStaffGroups[key].exps.push(exp);
     });
 
-    let grandSales = 0, grandGCash = 0, grandCash = 0, grandExpenses = 0;
+    // dayGroups still needed for deposit cash-by-day calculation
+    const dayGroups = {};
+    logs.forEach(log => {
+        const ds = log.created_at.split(' ')[0];
+        if (!dayGroups[ds]) dayGroups[ds] = { logs: [] };
+        dayGroups[ds].logs.push(log);
+    });
     const sortedDays = Object.keys(dayGroups).sort();
 
-    if (sortedDays.length === 0) {
-        salesBody.innerHTML = `<tr><td colspan="5" class="py-12 text-center text-slate-400 italic">No records for this month.</td></tr>`;
+    let grandSales = 0, grandGCash = 0, grandCash = 0, grandExpenses = 0;
+    const sortedKeys = Object.keys(dayStaffGroups).sort();
+
+    if (sortedKeys.length === 0) {
+        salesBody.innerHTML = `<tr><td colspan="10" class="py-12 text-center text-slate-400 italic">No records for this month.</td></tr>`;
     }
 
-    sortedDays.forEach(ds => {
-        const dl = dayGroups[ds].logs;
-        const de = dayGroups[ds].exps;
-        let sales = 0, gcash = 0, cash = 0;
+    sortedKeys.forEach((key, idx) => {
+        const { ds, staff, logs: dl, exps: de } = dayStaffGroups[key];
+        let sales = 0, gcash = 0, cashOnHand = 0;
 
         dl.forEach(log => {
-            const base = parseFloat(log.amount_cash > 0 ? log.amount_cash : (log.amount_gcash > 0 ? log.amount_gcash : 0)) || 0;
+            const base = parseFloat(log.amount_cash >= 0 ? log.amount_cash : (log.amount_gcash >= 0 ? log.amount_gcash : 0)) || 0;
             const addl = parseFloat(log.additional_cash > 0 ? log.additional_cash : (log.additional_gcash > 0 ? log.additional_gcash : 0)) || 0;
-            const rt = base + addl;
-            sales += rt;
-            if (log.amount_cash > 0 && log.payment_method !== 'GCash') cash += rt;
-            else gcash += rt;
+            const rowTotal = base + addl;
+            sales += rowTotal;
+            if (log.amount_cash >= 0 && log.payment_method !== 'GCash') cashOnHand += rowTotal;
+            else gcash += rowTotal;
         });
 
         const dayExp = de.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+
+        // Apply local overrides
+        const ov = monthlyOverrides[key] || {};
+        const dispSales   = ov.sales    !== undefined ? ov.sales    : sales;
+        const dispExp     = ov.expenses !== undefined ? ov.expenses : dayExp;
+        const dispExpDesc = ov.expDesc  !== undefined ? ov.expDesc
+            : de.map(e => `${e.particulars.toUpperCase()} ${parseFloat(e.amount).toLocaleString('en-PH',{style:'currency',currency:'PHP'})}`).join(' / ');
+        const net = dispSales - dispExp;
+
         const [yy, mm, dd] = ds.split('-').map(Number);
-        const dayName = new Date(yy, mm - 1, dd).toLocaleString('en-US', { weekday: 'long' });
+        const dayName   = new Date(yy, mm-1, dd).toLocaleString('en-US', { weekday: 'long' }).toUpperCase();
+        const dateLabel = new Date(yy, mm-1, dd).toLocaleString('en-US', { month: 'long', day: 'numeric' }).toUpperCase();
+        const rowBg = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50';
+        const hasOv = !!monthlyOverrides[key];
+        const safeDesc = dispExpDesc.replace(/`/g, "'");
 
         salesBody.innerHTML += `
-            <tr class="hover:bg-slate-50 border-b border-slate-100">
-                <td class="px-4 py-3">
-                    <span class="font-semibold text-slate-700">${dayName}</span>
-                    <span class="text-slate-400 ml-1">${ds}</span>
+            <tr class="${rowBg} hover:bg-yellow-50/40 border-b border-slate-100 text-[11px]">
+                <td class="px-3 py-2.5 font-bold text-cyan-700 whitespace-nowrap border-r border-slate-100">${staff.toUpperCase()}</td>
+                <td class="px-3 py-2.5 text-slate-600 whitespace-nowrap border-r border-slate-100">${dayName}</td>
+                <td class="px-3 py-2.5 text-slate-600 whitespace-nowrap border-r border-slate-100">${dateLabel}, ${yy}</td>
+                <td class="px-3 py-2.5 text-right font-mono font-semibold text-emerald-700 border-r border-slate-100">${dispSales > 0 ? fmtAlways(dispSales) : '—'}${hasOv ? ' <span class="text-[8px] text-cyan-400">✎</span>' : ''}</td>
+                <td class="px-3 py-2.5 text-right font-mono text-blue-600 border-r border-slate-100">${gcash > 0 ? fmtAlways(gcash) : '—'}</td>
+                <td class="px-3 py-2.5 text-right font-mono text-slate-700 border-r border-slate-100">${cashOnHand > 0 ? fmtAlways(cashOnHand) : '—'}</td>
+                <td class="px-3 py-2.5 text-right font-mono text-amber-600 border-r border-slate-100">${dispExp > 0 ? fmtAlways(dispExp) : '—'}</td>
+                <td class="px-3 py-2.5 text-right font-mono font-bold text-slate-800 border-r border-slate-100">${fmtAlways(net)}</td>
+                <td class="px-3 py-2.5 text-slate-500 italic text-[10px] border-r border-slate-100">${dispExpDesc}</td>
+                <td class="px-3 py-2.5 text-center">
+                    <button onclick="openMonthlyEditModal('${key}','${ds}','${staff}',${dispSales},${dispExp},\`${safeDesc}\`)"
+                            class="text-[9px] font-bold px-2 py-1 rounded-lg bg-cyan-50 text-cyan-600 hover:bg-cyan-500 hover:text-white transition-colors whitespace-nowrap">EDIT</button>
                 </td>
-                <td class="px-4 py-3 text-right font-mono text-emerald-700">₱${sales.toFixed(2)}</td>
-                <td class="px-4 py-3 text-right font-mono text-blue-500">₱${gcash.toFixed(2)}</td>
-                <td class="px-4 py-3 text-right font-mono text-amber-500">${dayExp > 0 ? '₱' + dayExp.toFixed(2) : '—'}</td>
-                <td class="px-4 py-3 text-right font-mono">₱${cash.toFixed(2)}</td>
             </tr>`;
 
-        grandSales    += sales;
+        grandSales    += dispSales;
         grandGCash    += gcash;
-        grandCash     += cash;
-        grandExpenses += dayExp;
+        grandCash     += cashOnHand;
+        grandExpenses += dispExp;
     });
 
-    if (exps.length === 0) {
-        expensesBody.innerHTML = `<tr><td colspan="3" class="py-10 text-center text-slate-400 italic">No expenses this month.</td></tr>`;
-    } else {
-        exps.sort((a, b) => a.expense_date.localeCompare(b.expense_date)).forEach(exp => {
-            expensesBody.innerHTML += `
-                <tr class="hover:bg-slate-50 border-b border-slate-100">
-                    <td class="px-4 py-3">${exp.expense_date}</td>
-                    <td class="px-4 py-3">${exp.particulars}</td>
-                    <td class="px-4 py-3 text-right font-mono text-amber-600">₱${parseFloat(exp.amount).toFixed(2)}</td>
-                </tr>`;
+    document.getElementById('monthly-total-sales').innerHTML    = fmtAlways(grandSales);
+    document.getElementById('monthly-total-gcash').innerHTML    = grandGCash > 0 ? fmtAlways(grandGCash) : '—';
+    document.getElementById('monthly-total-cash').innerHTML     = fmtAlways(grandCash);
+    document.getElementById('monthly-total-expenses').innerHTML = grandExpenses > 0 ? fmtAlways(grandExpenses) : '—';
+    document.getElementById('monthly-total-net').innerHTML      = fmtAlways(grandSales - grandExpenses);
+
+    // ── GRAND TOTAL with overrides ──
+    const gtOv = grandTotalOverrides[selectedMonth] || {};
+    const fmtGT = v => v > 0 ? fmtAlways(v) : '—';
+    const gtSal15 = gtOv.salary15 || 0;
+    const gtSal30 = gtOv.salary30 || 0;
+    const gtSoa   = gtOv.soa      || 0;
+    const gtWaiv  = gtOv.waiver   || 0;
+    const gtOr    = gtOv.or       || 0;
+    const gtVat   = gtOv.vat      || 0;
+    const gtTotalAllExp = grandExpenses + gtSal15 + gtSal30 + gtSoa + gtWaiv + gtOr + gtVat;
+    const gtNet = grandSales - gtTotalAllExp;
+
+    const _s = id => document.getElementById(id);
+    if (_s('gt-total-sales'))    _s('gt-total-sales').textContent    = fmtAlways(grandSales);
+    if (_s('gt-expenses'))       _s('gt-expenses').textContent       = grandExpenses > 0 ? fmtAlways(grandExpenses) : '—';
+    if (_s('gt-salary15'))       _s('gt-salary15').textContent       = fmtGT(gtSal15);
+    if (_s('gt-salary30'))       _s('gt-salary30').textContent       = fmtGT(gtSal30);
+    if (_s('gt-soa'))            _s('gt-soa').textContent            = fmtGT(gtSoa);
+    if (_s('gt-waiver'))         _s('gt-waiver').textContent         = fmtGT(gtWaiv);
+    if (_s('gt-or'))             _s('gt-or').textContent             = fmtGT(gtOr);
+    if (_s('gt-vat'))            _s('gt-vat').textContent            = fmtGT(gtVat);
+    if (_s('gt-total-expenses')) _s('gt-total-expenses').textContent = fmtAlways(gtTotalAllExp);
+    if (_s('gt-net-sales'))      _s('gt-net-sales').textContent      = fmtAlways(gtNet);
+
+    // ── DEPOSIT TABLE (editable manual rows + real DB deposits) ──
+    renderDepositSection(selectedMonth, grandCash, fmtAlways, cashByDayFromGroups(dayGroups));
+}
+
+function cashByDayFromGroups(dayGroups) {
+    const cashByDay = {};
+    Object.keys(dayGroups).forEach(ds => {
+        let cash = 0;
+        (dayGroups[ds].logs || []).forEach(log => {
+            const base = parseFloat(log.amount_cash >= 0 ? log.amount_cash : 0) || 0;
+            const addl = parseFloat(log.additional_cash > 0 ? log.additional_cash : 0) || 0;
+            if (log.amount_cash >= 0 && log.payment_method !== 'GCash') cash += base + addl;
         });
+        cashByDay[ds] = cash;
+    });
+    return cashByDay;
+}
+
+// ── DEPOSIT SECTION RENDERER ──
+function renderDepositSection(monthKey, grandCash, fmtAlways, cashByDay) {
+    const body = document.getElementById('monthly-deposit-body');
+    if (!body) return;
+
+    // Overrides store: status + notes keyed by "monthKey-idx" — persisted in localStorage
+    if (!window._depositOverrides) window._depositOverrides = _lsGet(LS_KEY_DEP_OV);
+
+    // Receipt photos store
+    const receiptStore = _lsGet(LS_KEY_RECEIPTS);
+
+    let depositsToUse = allDeposits;
+    if (currentUser.role === 'admin' && activeBranch !== 'all') {
+        const bu = BRANCH_USERS[activeBranch] || [];
+        depositsToUse = allDeposits.filter(d => bu.includes(d.employee_username));
+    } else if (currentUser.role !== 'admin') {
+        depositsToUse = allDeposits.filter(d => d.employee_username === currentUser.username);
+    }
+    const dbRows = depositsToUse
+        .filter(d => d.deposit_date && d.deposit_date.startsWith(monthKey))
+        .map(d => ({
+            dateOfSales: d.deposit_date,
+            depositDate: d.deposit_date,
+            covered: cashByDay ? (cashByDay[d.deposit_date] || 0) : 0,
+            receipt: parseFloat(d.amount || 0),
+            fromDB: true,
+            description: d.description || '',
+            // Match receipt photo by date|amount|description key
+            receiptKey: `${d.deposit_date}|${parseFloat(d.amount||0)}|${(d.description||'').trim()}`
+        }));
+
+    // Manual rows come from the edit modal only (no add-row inline)
+    const manualRows = depositRowsByMonth[monthKey] || [];
+    const allRows = [...dbRows, ...manualRows];
+
+    if (allRows.length === 0) {
+        body.innerHTML = `<tr id="deposit-empty-row"><td colspan="9" class="py-10 text-center text-slate-500 italic text-xs">No deposit records yet.</td></tr>`;
+        const c = document.getElementById('monthly-deposit-total-covered');
+        const r = document.getElementById('monthly-deposit-total-receipt');
+        const d = document.getElementById('monthly-deposit-total-discrepancy');
+        if (c) c.textContent = '—'; if (r) r.textContent = '—'; if (d) d.textContent = '—';
+        return;
     }
 
-    document.getElementById('monthly-total-sales').innerHTML    = `₱${grandSales.toFixed(2)}`;
-    document.getElementById('monthly-total-gcash').innerHTML    = `₱${grandGCash.toFixed(2)}`;
-    document.getElementById('monthly-total-expenses').innerHTML = `₱${grandExpenses.toFixed(2)}`;
-    document.getElementById('monthly-total-cash').innerHTML     = `₱${grandCash.toFixed(2)}`;
-    document.getElementById('monthly-total-expense').innerHTML  = `₱${grandExpenses.toFixed(2)}`;
+    body.innerHTML = '';
+    let totalCovered = 0, totalReceipt = 0;
+
+    allRows.forEach((row, idx) => {
+        const covered = parseFloat(row.covered) || 0;
+        const receipt = parseFloat(row.receipt) || 0;
+        const disc    = receipt - covered;
+        totalCovered += covered;
+        totalReceipt += receipt;
+
+        const overrideKey = `${monthKey}-${idx}`;
+        const ov = window._depositOverrides[overrideKey] || {};
+
+        // Status: use override if set, otherwise derive from discrepancy
+        const savedStatus = ov.status || '';
+        const autoStatus  = Math.abs(disc) < 0.01 ? 'Balanced' : disc > 0 ? 'Over' : 'Short';
+        const currentStatus = savedStatus || autoStatus;
+
+        const statusColor = currentStatus === 'Balanced' ? 'bg-emerald-100 text-emerald-800'
+                          : currentStatus === 'Over'     ? 'bg-blue-100 text-blue-800'
+                          :                                'bg-red-100 text-red-800';
+
+        const discColor = Math.abs(disc) < 0.01 ? 'text-slate-800'
+                        : disc > 0 ? 'text-slate-800'
+                        : 'text-red-700 font-bold';
+
+        const adminNotes = ov.notes || '';
+        const rowBg = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
+
+        // Receipt photo thumbnail
+        const receiptImg = row.receiptKey ? (receiptStore[row.receiptKey] || '') : '';
+        const receiptCell = receiptImg
+            ? `<td class="px-3 py-2 text-center">
+                <button onclick="openReceiptLightbox('${receiptImg.replace(/'/g, "\\'")}', event)"
+                        class="inline-block w-14 h-14 rounded-xl overflow-hidden border-2 border-blue-200 hover:border-blue-400 shadow-sm hover:shadow-md transition-all active:scale-95 focus:outline-none">
+                    <img src="${receiptImg}" alt="Receipt" class="w-full h-full object-cover">
+                </button>
+               </td>`
+            : `<td class="px-3 py-2 text-center">
+                <span class="text-[10px] text-slate-300 italic">No photo</span>
+               </td>`;
+
+        body.innerHTML += `
+            <tr class="${rowBg} border-b border-slate-200 text-[11px]" id="dep-row-${monthKey}-${idx}">
+                <td class="px-3 py-2.5 font-mono text-slate-800 font-semibold">${row.dateOfSales || '—'}</td>
+                <td class="px-3 py-2.5 font-mono text-slate-800 font-semibold">${row.depositDate || '—'}</td>
+                <td class="px-3 py-2.5 text-right font-mono font-semibold text-slate-800">${covered > 0 ? fmtAlways(covered) : '—'}</td>
+                <td class="px-3 py-2.5 text-right font-mono font-semibold text-slate-800">${receipt > 0 ? fmtAlways(receipt) : '—'}</td>
+                <td class="px-3 py-2.5 text-right font-mono font-semibold ${discColor}">${Math.abs(disc) > 0.01 ? fmtAlways(Math.abs(disc)) : '—'}</td>
+                <td class="px-3 py-2.5 text-center">
+                    <select onchange="(function(el,k){window._depositOverrides[k]=window._depositOverrides[k]||{};window._depositOverrides[k].status=el.value;_lsSet(LS_KEY_DEP_OV,window._depositOverrides);})(this,'${overrideKey}')"
+                            class="text-[10px] font-bold px-2 py-1 rounded-full border border-slate-200 outline-none cursor-pointer ${statusColor}">
+                        <option value="Balanced" ${currentStatus === 'Balanced' ? 'selected' : ''}>Balanced</option>
+                        <option value="Over"      ${currentStatus === 'Over'     ? 'selected' : ''}>Over</option>
+                        <option value="Short"     ${currentStatus === 'Short'    ? 'selected' : ''}>Short</option>
+                    </select>
+                </td>
+                <td class="px-3 py-2.5 text-slate-800 font-semibold max-w-[160px] truncate" title="${(row.description || '').replace(/"/g, '&quot;')}">${row.description || '<span class="text-slate-400 italic">—</span>'}</td>
+                ${receiptCell}
+                <td class="px-3 py-2.5 min-w-[160px]">
+                    <input type="text" placeholder="Admin notes…" value="${adminNotes.replace(/"/g, '&quot;')}"
+                           onchange="(function(el,k){window._depositOverrides[k]=window._depositOverrides[k]||{};window._depositOverrides[k].notes=el.value;_lsSet(LS_KEY_DEP_OV,window._depositOverrides);})(this,'${overrideKey}')"
+                           class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-800 font-semibold outline-none focus:ring-2 focus:ring-cyan-400 placeholder-slate-400">
+                </td>
+            </tr>`;
+    });
+
+    const totalDiscrep = totalReceipt - totalCovered;
+    const covEl = document.getElementById('monthly-deposit-total-covered');
+    const recEl = document.getElementById('monthly-deposit-total-receipt');
+    const disEl = document.getElementById('monthly-deposit-total-discrepancy');
+    if (covEl) covEl.textContent = totalCovered > 0 ? fmtAlways(totalCovered) : '—';
+    if (recEl) recEl.textContent = totalReceipt > 0 ? fmtAlways(totalReceipt) : '—';
+    if (disEl) disEl.textContent = Math.abs(totalDiscrep) > 0.01 ? fmtAlways(Math.abs(totalDiscrep)) : '—';
+}
+
+// ── RECEIPT LIGHTBOX ──
+function openReceiptLightbox(src, event) {
+    if (event) event.stopPropagation();
+    const lb  = document.getElementById('receipt-lightbox');
+    const img = document.getElementById('receipt-lightbox-img');
+    if (!lb || !img) return;
+    img.src = src;
+    lb.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeReceiptLightbox() {
+    const lb = document.getElementById('receipt-lightbox');
+    if (lb) lb.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+// ── DEPOSIT EDIT MODAL ──
+// Edit existing DB deposit values (description, covered, receipt, dates)
+let _depositEditRows = [];
+
+function openDepositEdit() {
+    if (!selectedMonth) { alert('Select a month first.'); return; }
+
+    // Build editable list from DB rows for this month + manual rows
+    let depositsToUse = allDeposits;
+    if (currentUser.role === 'admin' && activeBranch !== 'all') {
+        const bu = BRANCH_USERS[activeBranch] || [];
+        depositsToUse = allDeposits.filter(d => bu.includes(d.employee_username));
+    } else if (currentUser.role !== 'admin') {
+        depositsToUse = allDeposits.filter(d => d.employee_username === currentUser.username);
+    }
+    const dbRows = depositsToUse
+        .filter(d => d.deposit_date && d.deposit_date.startsWith(selectedMonth))
+        .map(d => ({
+            dateOfSales: d.deposit_date,
+            depositDate: d.deposit_date,
+            covered: 0,
+            receipt: parseFloat(d.amount || 0),
+            fromDB: true,
+            description: d.description || ''
+        }));
+    const manualRows = JSON.parse(JSON.stringify(depositRowsByMonth[selectedMonth] || []));
+
+    // Merge: DB rows shown read-only in fields except covered/receipt overrides; manual fully editable
+    _depositEditRows = [
+        ...dbRows.map(r => ({ ...r })),
+        ...manualRows
+    ];
+
+    const label = document.getElementById('deposit-edit-month-label');
+    if (label) label.textContent = 'Month: ' + selectedMonth;
+
+    _renderDepositEditRows();
+    document.getElementById('deposit-edit-modal').showModal();
+}
+
+function closeDepositEdit() {
+    document.getElementById('deposit-edit-modal').close();
+}
+
+function _renderDepositEditRows() {
+    const container = document.getElementById('deposit-edit-rows');
+    if (!container) return;
+
+    if (_depositEditRows.length === 0) {
+        container.innerHTML = `<p class="text-center text-slate-500 text-xs italic py-4">No deposit records for this month.</p>`;
+        return;
+    }
+
+    container.innerHTML = _depositEditRows.map((row, i) => {
+        const isDB = row.fromDB;
+        return `
+        <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-3">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Row ${i + 1}${isDB ? ' — Employee Deposit' : ' — Manual'}</span>
+                ${!isDB ? `<button onclick="_removeDepositEditRow(${i})" class="text-[10px] font-bold text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors">Remove</button>` : ''}
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Date of Sales</label>
+                    <input type="date" value="${row.dateOfSales || ''}" ${isDB ? 'readonly class="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-mono text-slate-700 outline-none cursor-default"' : `oninput="_depositEditRows[${i}].dateOfSales = this.value" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:ring-2 focus:ring-blue-400 outline-none"`}>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Deposit Date</label>
+                    <input type="date" value="${row.depositDate || ''}" ${isDB ? 'readonly class="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-mono text-slate-700 outline-none cursor-default"' : `oninput="_depositEditRows[${i}].depositDate = this.value" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:ring-2 focus:ring-blue-400 outline-none"`}>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Total Cash Sales Covered</label>
+                    <input type="number" step="0.01" placeholder="0.00" value="${row.covered || ''}" oninput="_depositEditRows[${i}].covered = parseFloat(this.value) || 0"
+                           class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-blue-400 outline-none font-mono text-right">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Deposit Amount (Receipt)</label>
+                    <input type="number" step="0.01" placeholder="0.00" value="${row.receipt || ''}" ${isDB ? 'readonly class="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-700 font-semibold outline-none font-mono text-right cursor-default"' : `oninput="_depositEditRows[${i}].receipt = parseFloat(this.value) || 0" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-blue-400 outline-none font-mono text-right"`}>
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Description</label>
+                <input type="text" placeholder="${isDB ? 'Employee description (read-only)' : 'Enter description…'}" value="${(row.description || '').replace(/"/g, '&quot;')}" ${isDB ? 'readonly class="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-700 font-semibold outline-none cursor-default"' : `oninput="_depositEditRows[${i}].description = this.value" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-blue-400 outline-none"`}>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function _removeDepositEditRow(idx) {
+    _depositEditRows.splice(idx, 1);
+    _renderDepositEditRows();
+}
+
+function saveDepositEdit() {
+    // Save only the manual (non-DB) rows back
+    depositRowsByMonth[selectedMonth] = _depositEditRows
+        .filter(r => !r.fromDB)
+        .map(r => ({ dateOfSales: r.dateOfSales, depositDate: r.depositDate, covered: r.covered, receipt: r.receipt, description: r.description || '' }));
+    closeDepositEdit();
+    renderMonthlyTable();
+}
+
+// Keep addDepositRow as internal — no longer called from UI
+function addDepositRow() {
+    if (!selectedMonth) return;
+    if (!depositRowsByMonth[selectedMonth]) depositRowsByMonth[selectedMonth] = [];
+    depositRowsByMonth[selectedMonth].push({ dateOfSales: selectedMonth + '-01', depositDate: selectedMonth + '-01', covered: 0, receipt: 0, description: '' });
+    renderMonthlyTable();
+}
+
+function removeDepositRow(manualIdx, monthKey) {
+    if (!depositRowsByMonth[monthKey]) return;
+    depositRowsByMonth[monthKey].splice(manualIdx, 1);
+    renderMonthlyTable();
+}
+
+function openMonthlyEditModal(key, ds, staff, currentSales, currentExp, currentExpDesc) {
+    document.getElementById('me-date').value  = ds;
+    document.getElementById('me-staff').value = staff;
+    const [yy, mm, dd] = ds.split('-').map(Number);
+    const dateStr = new Date(yy, mm-1, dd).toLocaleString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+    document.getElementById('monthly-edit-date-label').textContent = staff.toUpperCase() + ' — ' + dateStr.toUpperCase();
+    document.getElementById('me-sales').value    = currentSales > 0 ? currentSales : '';
+    document.getElementById('me-expenses').value = currentExp   > 0 ? currentExp   : '';
+    document.getElementById('me-exp-desc').value = currentExpDesc || '';
+    document.getElementById('monthly-edit-modal').showModal();
+}
+
+function closeMonthlyEditModal() { document.getElementById('monthly-edit-modal').close(); }
+
+function saveMonthlyRowEdit() {
+    const ds    = document.getElementById('me-date').value;
+    const staff = document.getElementById('me-staff').value;
+    const key   = `${ds}|${staff}`;
+    const salesVal = parseFloat(document.getElementById('me-sales').value);
+    const expVal   = parseFloat(document.getElementById('me-expenses').value);
+    const expDesc  = document.getElementById('me-exp-desc').value.trim();
+    monthlyOverrides[key] = {
+        sales:    isNaN(salesVal) ? undefined : salesVal,
+        expenses: isNaN(expVal)  ? undefined : expVal,
+        expDesc:  expDesc || undefined,
+    };
+    closeMonthlyEditModal();
+    renderMonthlyTable();
+}
+
+// ── GRAND TOTAL EDIT MODAL ──
+function openGrandTotalEdit() {
+    if (!selectedMonth) { alert('Select a month first.'); return; }
+    const ov = grandTotalOverrides[selectedMonth] || {};
+    document.getElementById('gte-salary15').value = ov.salary15 || '';
+    document.getElementById('gte-salary30').value = ov.salary30 || '';
+    document.getElementById('gte-soa').value      = ov.soa      || '';
+    document.getElementById('gte-waiver').value   = ov.waiver   || '';
+    document.getElementById('gte-or').value       = ov.or       || '';
+    document.getElementById('gte-vat').value      = ov.vat      || '';
+    document.getElementById('gt-edit-modal').showModal();
+}
+
+function closeGrandTotalEdit() { document.getElementById('gt-edit-modal').close(); }
+
+function saveGrandTotalEdit() {
+    if (!selectedMonth) return;
+    grandTotalOverrides[selectedMonth] = {
+        salary15: parseFloat(document.getElementById('gte-salary15').value) || 0,
+        salary30: parseFloat(document.getElementById('gte-salary30').value) || 0,
+        soa:      parseFloat(document.getElementById('gte-soa').value)      || 0,
+        waiver:   parseFloat(document.getElementById('gte-waiver').value)   || 0,
+        or:       parseFloat(document.getElementById('gte-or').value)       || 0,
+        vat:      parseFloat(document.getElementById('gte-vat').value)      || 0,
+    };
+    closeGrandTotalEdit();
+    renderMonthlyTable();
+}
+
+// ── NOTIFICATIONS ──
+async function loadNotifications() {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    try {
+        const res  = await apiFetch('api.php?action=getNotifications');
+        const data = await res.json();
+        renderNotifications(data);
+    } catch(e) { /* silent */ }
+}
+
+function renderNotifications(items) {
+    const list  = document.getElementById('notif-list');
+    const badge = document.getElementById('notif-badge');
+    if (!list || !badge) return;
+    const unread = items.filter(n => n.is_read == 0).length;
+    if (unread > 0) { badge.textContent = unread > 99 ? '99+' : unread; badge.classList.remove('hidden'); }
+    else badge.classList.add('hidden');
+    if (items.length === 0) { list.innerHTML = '<p class="py-8 text-center text-slate-400 text-xs italic">No activity yet.</p>'; return; }
+    list.innerHTML = items.map(n => {
+        const isEdit = n.action_type === 'EDIT';
+        const bg  = n.is_read == 0 ? 'bg-blue-50' : 'bg-white';
+        const dot = n.is_read == 0 ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 mt-1"></span>' : '<span class="w-1.5 h-1.5 shrink-0"></span>';
+        const icon = isEdit
+            ? '<span class="text-[10px] bg-cyan-100 text-cyan-700 font-bold px-1.5 py-0.5 rounded-md">EDIT</span>'
+            : '<span class="text-[10px] bg-red-100 text-red-600 font-bold px-1.5 py-0.5 rounded-md">DELETE</span>';
+        const dt = new Date(n.created_at.replace(' ','T') + '+08:00');
+        const timeStr = dt.toLocaleString('en-PH', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit', hour12:true});
+        return `<div class="flex items-start gap-2 px-4 py-3 ${bg} hover:bg-slate-50 transition-colors">
+            ${dot}
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">${icon}
+                    <span class="text-[10px] font-bold text-slate-700 uppercase">${n.employee_username}</span>
+                    <span class="text-[9px] text-slate-400 ml-auto">${timeStr}</span>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-0.5 truncate">${n.detail}</p>
+            </div></div>`;
+    }).join('');
+}
+
+function toggleNotifPanel() {
+    const panel = document.getElementById('notif-panel');
+    if (!panel) return;
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) loadNotifications();
+}
+
+document.addEventListener('click', function(e) {
+    const wrap = document.getElementById('notif-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+        const panel = document.getElementById('notif-panel');
+        if (panel) panel.classList.add('hidden');
+    }
+});
+
+async function markAllRead() {
+    await apiFetch('api.php?action=markNotificationsRead', { method: 'POST' });
+    loadNotifications();
+}
+
+function startNotifPolling() {
+    loadNotifications();
+    if (notifPollTimer) clearInterval(notifPollTimer);
+    notifPollTimer = setInterval(loadNotifications, 30000);
 }
 
 function renderMonthlySummary() {
@@ -1390,9 +2356,7 @@ const YEARLY_BRANCHES = [
     { key: 'pampanga',    label: 'Pampanga',    users: ['pampanga'] },
     { key: 'dataan',      label: 'Dataan',      users: ['dataan'] },
     { key: 'trinoma',     label: 'Trinoma',     users: ['trinoma'] },
-    { key: 'technocargo', label: 'Technocargo', users: ['technocargo'] },
     { key: 'baliwag',     label: 'Baliwag',     users: ['baliwag'] },
-    { key: 'sjdm',        label: 'SJDM',        users: ['sjdm'] },
 ];
 
 const MONTHS_LABELS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
