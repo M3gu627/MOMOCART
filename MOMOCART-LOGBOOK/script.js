@@ -507,6 +507,10 @@ function renderTable() {
             <td class="px-4 py-4 text-right font-mono">₱${baseAmount.toFixed(2)}</td>
             <td class="px-4 py-4 text-right font-mono">${addlAmount > 0 ? '<span class="text-amber-600 font-bold">₱' + addlAmount.toFixed(2) + '</span>' : '<span class="text-slate-300">—</span>'}</td>
             <td class="px-4 py-4 text-right font-mono font-bold text-slate-800">₱${rowTotal.toFixed(2)}</td>
+            <td class="px-4 py-4 text-center">${log.id_photo
+                ? `<button onclick="viewIdPhoto('${log.id}')" class="action-btn bg-indigo-100 text-indigo-600 hover:bg-indigo-500 hover:text-white transition-colors">VIEW</button>`
+                : '<span class="text-slate-300 text-[10px]">—</span>'
+            }</td>
         `;
         html += actionCell;
 
@@ -667,6 +671,13 @@ function showAddModal() {
     document.getElementById('form-add-charge').value = '';
     document.getElementById('form-duration').value = '';
     document.getElementById('form-validid').value = 'Regular';
+    // Reset ID photo
+    document.getElementById('form-id-photo').value = '';
+    document.getElementById('id-photo-preview').src = '';
+    document.getElementById('id-photo-preview-wrap').classList.add('hidden');
+    document.getElementById('id-photo-placeholder').classList.remove('hidden');
+    const fileInput = document.getElementById('id-photo-file');
+    if (fileInput) fileInput.value = '';
     document.getElementById('form-payment-method').value = 'Cash';
     document.getElementById('form-payment-other').value = '';
     document.getElementById('payment-other-wrap').classList.add('hidden');
@@ -971,7 +982,8 @@ async function submitNewEntry() {
         payment_method: document.getElementById('form-payment-method').value,
         amount: parseFloat(document.getElementById('form-amount').value) || 0,
         additional_charge: parseFloat(document.getElementById('form-add-charge').value) || 0,
-        total: (parseFloat(document.getElementById('form-amount').value) || 0) + (parseFloat(document.getElementById('form-add-charge').value) || 0)
+        total: (parseFloat(document.getElementById('form-amount').value) || 0) + (parseFloat(document.getElementById('form-add-charge').value) || 0),
+        id_photo: document.getElementById('form-id-photo').value || ''
     };
     try {
         const res = await apiFetch('api.php?action=saveLog', {
@@ -1559,11 +1571,18 @@ function renderDepositTab() {
         const ampm = h >= 12 ? 'PM' : 'AM';
         h = h % 12 || 12;
         const time12 = isNaN(h) ? timeDisplay : `${h}:${mStr} ${ampm}`;
+        const receiptThumb = dep.receipt_photo
+            ? `<button onclick="openReceiptLightbox('${dep.receipt_photo.replace(/'/g,"\\'")}', event)"
+                       class="inline-block w-12 h-12 rounded-xl overflow-hidden border-2 border-blue-200 hover:border-blue-400 shadow-sm hover:shadow-md transition-all active:scale-95">
+                   <img src="${dep.receipt_photo}" alt="Receipt" class="w-full h-full object-cover">
+               </button>`
+            : '<span class="text-slate-300 text-[10px]">—</span>';
         tbody.innerHTML += `
             <tr class="hover:bg-slate-50 border-b border-slate-100">
                 <td class="px-4 py-3 text-slate-500">${dep.deposit_date}</td>
                 <td class="px-4 py-3 font-mono text-blue-600">${time12}</td>
                 <td class="px-4 py-3">${dep.description || '—'}</td>
+                <td class="px-4 py-3 text-center">${receiptThumb}</td>
                 <td class="px-4 py-3 text-right font-mono text-blue-700">₱${parseFloat(dep.amount).toFixed(2)}</td>
             </tr>`;
     });
@@ -1579,6 +1598,7 @@ function showDepositModal() {
     document.getElementById('dep-description').value = '';
     // Reset photo state
     _pendingReceiptBase64 = null;
+    document.getElementById('dep-receipt-base64').value = '';
     const fileInput = document.getElementById('dep-receipt-file');
     if (fileInput) fileInput.value = '';
     _depReceiptShowPlaceholder();
@@ -1590,14 +1610,14 @@ function showDepositModal() {
 function hideDepositModal() {
     document.getElementById('deposit-modal').close();
     _pendingReceiptBase64 = null;
+    closeDepReceiptCamera();
 }
 
-// Called when user selects/captures a receipt image
+// Called when user selects a receipt image via file picker
 function onDepositReceiptSelected(input) {
     const file = input.files && input.files[0];
     if (!file) return;
 
-    // Enforce 5MB limit
     if (file.size > 5 * 1024 * 1024) {
         alert('❌ Image is too large. Please use a photo under 5MB.');
         input.value = '';
@@ -1606,34 +1626,32 @@ function onDepositReceiptSelected(input) {
 
     const reader = new FileReader();
     reader.onload = function(e) {
-        _pendingReceiptBase64 = e.target.result; // full data URL
-        _depReceiptShowPreview(_pendingReceiptBase64);
+        setDepReceiptPreview(e.target.result);
     };
     reader.readAsDataURL(file);
 }
 
 function _depReceiptShowPlaceholder() {
     const placeholder = document.getElementById('dep-receipt-placeholder');
-    const preview     = document.getElementById('dep-receipt-preview');
-    const zone        = document.getElementById('dep-receipt-zone');
+    const preview     = document.getElementById('dep-receipt-preview-wrap');
     if (placeholder) placeholder.classList.remove('hidden');
     if (preview)     preview.classList.add('hidden');
-    if (zone)        zone.style.minHeight = '160px';
 }
 
-function _depReceiptShowPreview(src) {
+function setDepReceiptPreview(src) {
+    _pendingReceiptBase64 = src;
+    document.getElementById('dep-receipt-base64').value = src;
     const placeholder = document.getElementById('dep-receipt-placeholder');
-    const preview     = document.getElementById('dep-receipt-preview');
+    const preview     = document.getElementById('dep-receipt-preview-wrap');
     const img         = document.getElementById('dep-receipt-img');
-    const zone        = document.getElementById('dep-receipt-zone');
     if (placeholder) placeholder.classList.add('hidden');
     if (img)         img.src = src;
     if (preview)     preview.classList.remove('hidden');
-    if (zone)        zone.style.minHeight = '220px';
 }
 
 function removeDepositReceipt() {
     _pendingReceiptBase64 = null;
+    document.getElementById('dep-receipt-base64').value = '';
     const fileInput = document.getElementById('dep-receipt-file');
     if (fileInput) fileInput.value = '';
     _depReceiptShowPlaceholder();
@@ -1642,6 +1660,7 @@ function removeDepositReceipt() {
 async function submitDeposit() {
     const amount      = parseFloat(document.getElementById('dep-amount').value) || 0;
     const description = document.getElementById('dep-description').value.trim();
+    const receiptPhoto = document.getElementById('dep-receipt-base64').value || null;
 
     if (amount <= 0) { alert('Please enter a valid amount'); return; }
     if (!description) { alert('Please enter a description'); return; }
@@ -1653,23 +1672,11 @@ async function submitDeposit() {
         const res = await apiFetch('api.php?action=saveDeposit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, description })
+            body: JSON.stringify({ amount, description, receipt_photo: receiptPhoto })
         });
 
         const result = await res.json();
         if (result.success) {
-            // If a receipt photo was attached, store it keyed by deposit date + amount
-            // We use date+amount+description as a stable key since DB doesn't return the new ID
-            if (_pendingReceiptBase64) {
-                const today = new Date();
-                const dateStr = today.getFullYear() + '-' +
-                    String(today.getMonth()+1).padStart(2,'0') + '-' +
-                    String(today.getDate()).padStart(2,'0');
-                const receiptKey = `${dateStr}|${amount}|${description}`;
-                const receipts = _lsGet(LS_KEY_RECEIPTS);
-                receipts[receiptKey] = _pendingReceiptBase64;
-                _lsSet(LS_KEY_RECEIPTS, receipts);
-            }
             hideDepositModal();
             await loadLogs();
             switchTab(6);
@@ -1994,8 +2001,7 @@ function renderDepositSection(monthKey, grandCash, fmtAlways, cashByDay) {
             receipt: parseFloat(d.amount || 0),
             fromDB: true,
             description: d.description || '',
-            // Match receipt photo by date|amount|description key
-            receiptKey: `${d.deposit_date}|${parseFloat(d.amount||0)}|${(d.description||'').trim()}`
+            receipt_photo: d.receipt_photo || ''
         }));
 
     // Manual rows come from the edit modal only (no add-row inline)
@@ -2040,8 +2046,8 @@ function renderDepositSection(monthKey, grandCash, fmtAlways, cashByDay) {
         const adminNotes = ov.notes || '';
         const rowBg = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
 
-        // Receipt photo thumbnail
-        const receiptImg = row.receiptKey ? (receiptStore[row.receiptKey] || '') : '';
+        // Receipt photo thumbnail — pulled from DB field directly
+        const receiptImg = row.receipt_photo || '';
         const receiptCell = receiptImg
             ? `<td class="px-3 py-2 text-center">
                 <button onclick="openReceiptLightbox('${receiptImg.replace(/'/g, "\\'")}', event)"
@@ -2053,12 +2059,60 @@ function renderDepositSection(monthKey, grandCash, fmtAlways, cashByDay) {
                 <span class="text-[10px] text-slate-300 italic">No photo</span>
                </td>`;
 
+        // For manual rows: show editable date/amount fields + delete button; for DB rows: show data read-only
+        const isManual = !row.fromDB;
+        const manualIdx = isManual ? (allRows.filter((r,i) => !r.fromDB && i < idx).length) : -1;
+
+        const dateOfSalesCell = isManual
+            ? `<td class="px-3 py-2.5"><input type="date" value="${row.dateOfSales||''}"
+                   onchange="updateManualDepRow('${monthKey}',${manualIdx},'dateOfSales',this.value)"
+                   class="p-1 bg-white border border-slate-200 rounded-lg text-[11px] font-mono outline-none focus:ring-2 focus:ring-emerald-400 w-full"></td>`
+            : `<td class="px-3 py-2.5 font-mono text-slate-800 font-semibold">${row.dateOfSales || '—'}</td>`;
+
+        const depositDateCell = isManual
+            ? `<td class="px-3 py-2.5"><input type="date" value="${row.depositDate||''}"
+                   onchange="updateManualDepRow('${monthKey}',${manualIdx},'depositDate',this.value)"
+                   class="p-1 bg-white border border-slate-200 rounded-lg text-[11px] font-mono outline-none focus:ring-2 focus:ring-emerald-400 w-full"></td>`
+            : `<td class="px-3 py-2.5 font-mono text-slate-800 font-semibold">${row.depositDate || '—'}</td>`;
+
+        const coveredCell = isManual
+            ? `<td class="px-3 py-2.5"><input type="number" step="0.01" value="${covered||''}" placeholder="0.00"
+                   onchange="updateManualDepRow('${monthKey}',${manualIdx},'covered',parseFloat(this.value)||0)"
+                   class="p-1 bg-white border border-slate-200 rounded-lg text-[11px] font-mono outline-none focus:ring-2 focus:ring-emerald-400 w-full text-right"></td>`
+            : `<td class="px-3 py-2.5 text-right font-mono font-semibold text-slate-800">${covered > 0 ? fmtAlways(covered) : '—'}</td>`;
+
+        const receiptAmtCell = isManual
+            ? `<td class="px-3 py-2.5"><input type="number" step="0.01" value="${receipt||''}" placeholder="0.00"
+                   onchange="updateManualDepRow('${monthKey}',${manualIdx},'receipt',parseFloat(this.value)||0)"
+                   class="p-1 bg-white border border-slate-200 rounded-lg text-[11px] font-mono outline-none focus:ring-2 focus:ring-emerald-400 w-full text-right"></td>`
+            : `<td class="px-3 py-2.5 text-right font-mono font-semibold text-slate-800">${receipt > 0 ? fmtAlways(receipt) : '—'}</td>`;
+
+        const descCell = isManual
+            ? `<td class="px-3 py-2.5"><input type="text" value="${(row.description||'').replace(/"/g,'&quot;')}" placeholder="Description…"
+                   onchange="updateManualDepRow('${monthKey}',${manualIdx},'description',this.value)"
+                   class="p-1 bg-white border border-slate-200 rounded-lg text-[11px] outline-none focus:ring-2 focus:ring-emerald-400 w-full"></td>`
+            : `<td class="px-3 py-2.5 text-slate-800 font-semibold max-w-[160px] truncate" title="${(row.description||'').replace(/"/g,'&quot;')}">${row.description || '<span class="text-slate-400 italic">—</span>'}</td>`;
+
+        const notesCell = isManual
+            ? `<td class="px-3 py-2.5 flex items-center gap-2 min-w-[180px]">
+                   <input type="text" placeholder="Notes…" value="${adminNotes.replace(/"/g,'&quot;')}"
+                          onchange="(function(el,k){window._depositOverrides[k]=window._depositOverrides[k]||{};window._depositOverrides[k].notes=el.value;_lsSet(LS_KEY_DEP_OV,window._depositOverrides);})(this,'${overrideKey}')"
+                          class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] outline-none focus:ring-2 focus:ring-cyan-400 placeholder-slate-400">
+                   <button onclick="deleteManualDepRow('${monthKey}',${manualIdx})"
+                           class="shrink-0 w-6 h-6 bg-red-100 hover:bg-red-500 text-red-500 hover:text-white rounded-full flex items-center justify-center text-[10px] font-bold transition-colors" title="Delete row">&#x2715;</button>
+               </td>`
+            : `<td class="px-3 py-2.5 min-w-[160px]">
+                   <input type="text" placeholder="Admin notes…" value="${adminNotes.replace(/"/g,'&quot;')}"
+                          onchange="(function(el,k){window._depositOverrides[k]=window._depositOverrides[k]||{};window._depositOverrides[k].notes=el.value;_lsSet(LS_KEY_DEP_OV,window._depositOverrides);})(this,'${overrideKey}')"
+                          class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-800 font-semibold outline-none focus:ring-2 focus:ring-cyan-400 placeholder-slate-400">
+               </td>`;
+
         body.innerHTML += `
-            <tr class="${rowBg} border-b border-slate-200 text-[11px]" id="dep-row-${monthKey}-${idx}">
-                <td class="px-3 py-2.5 font-mono text-slate-800 font-semibold">${row.dateOfSales || '—'}</td>
-                <td class="px-3 py-2.5 font-mono text-slate-800 font-semibold">${row.depositDate || '—'}</td>
-                <td class="px-3 py-2.5 text-right font-mono font-semibold text-slate-800">${covered > 0 ? fmtAlways(covered) : '—'}</td>
-                <td class="px-3 py-2.5 text-right font-mono font-semibold text-slate-800">${receipt > 0 ? fmtAlways(receipt) : '—'}</td>
+            <tr class="${rowBg} border-b border-slate-200 text-[11px]${isManual ? ' ring-1 ring-emerald-200' : ''}" id="dep-row-${monthKey}-${idx}">
+                ${dateOfSalesCell}
+                ${depositDateCell}
+                ${coveredCell}
+                ${receiptAmtCell}
                 <td class="px-3 py-2.5 text-right font-mono font-semibold ${discColor}">${Math.abs(disc) > 0.01 ? fmtAlways(Math.abs(disc)) : '—'}</td>
                 <td class="px-3 py-2.5 text-center">
                     <select onchange="(function(el,k){window._depositOverrides[k]=window._depositOverrides[k]||{};window._depositOverrides[k].status=el.value;_lsSet(LS_KEY_DEP_OV,window._depositOverrides);})(this,'${overrideKey}')"
@@ -2068,13 +2122,9 @@ function renderDepositSection(monthKey, grandCash, fmtAlways, cashByDay) {
                         <option value="Short"     ${currentStatus === 'Short'    ? 'selected' : ''}>Short</option>
                     </select>
                 </td>
-                <td class="px-3 py-2.5 text-slate-800 font-semibold max-w-[160px] truncate" title="${(row.description || '').replace(/"/g, '&quot;')}">${row.description || '<span class="text-slate-400 italic">—</span>'}</td>
+                ${descCell}
                 ${receiptCell}
-                <td class="px-3 py-2.5 min-w-[160px]">
-                    <input type="text" placeholder="Admin notes…" value="${adminNotes.replace(/"/g, '&quot;')}"
-                           onchange="(function(el,k){window._depositOverrides[k]=window._depositOverrides[k]||{};window._depositOverrides[k].notes=el.value;_lsSet(LS_KEY_DEP_OV,window._depositOverrides);})(this,'${overrideKey}')"
-                           class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-800 font-semibold outline-none focus:ring-2 focus:ring-cyan-400 placeholder-slate-400">
-                </td>
+                ${notesCell}
             </tr>`;
     });
 
@@ -2127,7 +2177,8 @@ function openDepositEdit() {
             covered: 0,
             receipt: parseFloat(d.amount || 0),
             fromDB: true,
-            description: d.description || ''
+            description: d.description || '',
+            receipt_photo: d.receipt_photo || ''
         }));
     const manualRows = JSON.parse(JSON.stringify(depositRowsByMonth[selectedMonth] || []));
 
@@ -2212,6 +2263,32 @@ function addDepositRow() {
     if (!depositRowsByMonth[selectedMonth]) depositRowsByMonth[selectedMonth] = [];
     depositRowsByMonth[selectedMonth].push({ dateOfSales: selectedMonth + '-01', depositDate: selectedMonth + '-01', covered: 0, receipt: 0, description: '' });
     renderMonthlyTable();
+}
+
+// ── ADD MANUAL DEPOSIT ROW (inline in monthly table) ──
+function addManualDepositRow() {
+    if (!selectedMonth) { alert('Select a month first.'); return; }
+    if (!depositRowsByMonth[selectedMonth]) depositRowsByMonth[selectedMonth] = [];
+
+    const defaultDate = selectedMonth + '-01';
+    depositRowsByMonth[selectedMonth].push({
+        dateOfSales: defaultDate,
+        depositDate: defaultDate,
+        covered: 0,
+        receipt: 0,
+        description: '',
+        receipt_photo: ''
+    });
+    renderMonthlyTable();
+
+    // Scroll to bottom of deposit table so user sees the new row
+    setTimeout(() => {
+        const body = document.getElementById('monthly-deposit-body');
+        if (body) {
+            const lastRow = body.lastElementChild;
+            if (lastRow) lastRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 100);
 }
 
 function removeDepositRow(manualIdx, monthKey) {
@@ -2482,4 +2559,134 @@ function renderYearlyTables() {
 function renderYearlySummary() {
     buildYearPicker();
     renderYearlyTables();
+}
+
+// ── ID PHOTO FUNCTIONS ──
+
+let _idCameraStream = null;
+
+function openIdCamera() {
+    const overlay = document.getElementById('id-camera-overlay');
+    overlay.classList.remove('hidden');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+            _idCameraStream = stream;
+            const video = document.getElementById('id-camera-video');
+            video.srcObject = stream;
+        })
+        .catch(err => {
+            overlay.classList.add('hidden');
+            alert('Camera access denied or not available. Please use the Upload button instead.');
+        });
+}
+
+function closeIdCamera() {
+    if (_idCameraStream) {
+        _idCameraStream.getTracks().forEach(t => t.stop());
+        _idCameraStream = null;
+    }
+    document.getElementById('id-camera-overlay').classList.add('hidden');
+}
+
+function captureIdPhoto() {
+    const video  = document.getElementById('id-camera-video');
+    const canvas = document.getElementById('id-camera-canvas');
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+    setIdPhotoPreview(dataUrl);
+    closeIdCamera();
+}
+
+function handleIdPhotoUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => setIdPhotoPreview(e.target.result);
+    reader.readAsDataURL(file);
+}
+
+function setIdPhotoPreview(dataUrl) {
+    document.getElementById('form-id-photo').value = dataUrl;
+    document.getElementById('id-photo-preview').src = dataUrl;
+    document.getElementById('id-photo-preview-wrap').classList.remove('hidden');
+    document.getElementById('id-photo-placeholder').classList.add('hidden');
+}
+
+function clearIdPhoto() {
+    document.getElementById('form-id-photo').value = '';
+    document.getElementById('id-photo-preview').src = '';
+    document.getElementById('id-photo-preview-wrap').classList.add('hidden');
+    document.getElementById('id-photo-placeholder').classList.remove('hidden');
+    const fi = document.getElementById('id-photo-file');
+    if (fi) fi.value = '';
+}
+
+// Open ID photo lightbox from logs table
+function viewIdPhoto(logId) {
+    const log = allLogs.find(l => String(l.id) === String(logId));
+    if (!log || !log.id_photo) return;
+    const lb  = document.getElementById('receipt-lightbox');
+    const img = document.getElementById('receipt-lightbox-img');
+    img.src = log.id_photo;
+    lb.classList.remove('hidden');
+}
+
+// ── DEPOSIT RECEIPT CAMERA FUNCTIONS ──
+
+let _depCameraStream = null;
+
+function openDepReceiptCamera() {
+    const overlay = document.getElementById('dep-camera-overlay');
+    overlay.classList.remove('hidden');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+            _depCameraStream = stream;
+            const video = document.getElementById('dep-camera-video');
+            video.srcObject = stream;
+        })
+        .catch(() => {
+            overlay.classList.add('hidden');
+            alert('Camera access denied or unavailable. Please use the Upload button instead.');
+        });
+}
+
+function closeDepReceiptCamera() {
+    if (_depCameraStream) {
+        _depCameraStream.getTracks().forEach(t => t.stop());
+        _depCameraStream = null;
+    }
+    const overlay = document.getElementById('dep-camera-overlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+function captureDepReceiptPhoto() {
+    const video  = document.getElementById('dep-camera-video');
+    const canvas = document.getElementById('dep-camera-canvas');
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
+    setDepReceiptPreview(dataUrl);
+    closeDepReceiptCamera();
+}
+
+// ── MANUAL DEPOSIT ROW INLINE HELPERS ──
+function updateManualDepRow(monthKey, manualIdx, field, value) {
+    const rows = depositRowsByMonth[monthKey];
+    if (!rows) return;
+    const manualRows = rows; // depositRowsByMonth only stores manual rows
+    if (manualRows[manualIdx]) {
+        manualRows[manualIdx][field] = value;
+        depositRowsByMonth[monthKey] = manualRows; // trigger Proxy save
+    }
+}
+
+function deleteManualDepRow(monthKey, manualIdx) {
+    const rows = depositRowsByMonth[monthKey];
+    if (!rows || rows[manualIdx] === undefined) return;
+    rows.splice(manualIdx, 1);
+    depositRowsByMonth[monthKey] = rows.length ? rows : [];
+    renderMonthlyTable();
 }

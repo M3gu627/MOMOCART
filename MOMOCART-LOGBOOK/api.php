@@ -47,6 +47,7 @@ switch($action) {
     case 'markNotificationsRead': markNotificationsRead(); break;
     case 'saveDeposit':          saveDeposit();           break;
     case 'getDeposits':          getDeposits();           break;
+    case 'saveIdPhoto':          saveIdPhoto();           break;
     default:              echo json_encode(['error' => 'Invalid action']); break;
 }
 
@@ -158,14 +159,17 @@ function saveLog() {
     // Use Philippine time (UTC+8) for created_at
     $now = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
+    // Auto-add id_photo column if missing
+    try { $pdo->exec("ALTER TABLE rental_logs ADD COLUMN id_photo MEDIUMTEXT NULL"); } catch(PDOException $ignored) {}
+
     try {
         $stmt = $pdo->prepare("
             INSERT INTO rental_logs (
                 employee_username, name, address, waiver, or_number, cart_number,
                 valid_id, time_in, time_out, return_status,
                 amount_cash, amount_gcash, additional_cash, additional_gcash, 
-                total, return_time, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                total, return_time, created_at, id_photo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         $stmt->execute([
@@ -185,7 +189,8 @@ function saveLog() {
             $additional_gcash,
             $data['total'] ?? 0,
             $data['return_time'] ?? '',
-            $now->format('Y-m-d H:i:s')
+            $now->format('Y-m-d H:i:s'),
+            $data['id_photo'] ?? null
         ]);
         echo json_encode(['success' => true]);
     } catch(PDOException $e) {
@@ -529,13 +534,19 @@ function saveDeposit() {
                 deposit_time TIME NOT NULL,
                 description VARCHAR(255) DEFAULT '',
                 amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                receipt_photo MEDIUMTEXT NULL,
                 created_at DATETIME NOT NULL
             )
         ");
 
+        // Auto-add receipt_photo column to existing tables
+        try { $pdo->exec("ALTER TABLE deposits ADD COLUMN receipt_photo MEDIUMTEXT NULL"); } catch(PDOException $col) {}
+
+        $receiptPhoto = $data['receipt_photo'] ?? null;
+
         $stmt = $pdo->prepare("
-            INSERT INTO deposits (employee_username, deposit_date, deposit_time, description, amount, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO deposits (employee_username, deposit_date, deposit_time, description, amount, receipt_photo, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $_SESSION['user']['username'],
@@ -543,6 +554,7 @@ function saveDeposit() {
             $now->format('H:i:s'),
             $data['description'] ?? '',
             $amount,
+            $receiptPhoto,
             $now->format('Y-m-d H:i:s')
         ]);
         echo json_encode(['success' => true]);
@@ -570,18 +582,59 @@ function getDeposits() {
                 deposit_time TIME NOT NULL,
                 description VARCHAR(255) DEFAULT '',
                 amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                receipt_photo MEDIUMTEXT NULL,
                 created_at DATETIME NOT NULL
             )
         ");
 
+        // Auto-add receipt_photo column to existing tables
+        try { $pdo->exec("ALTER TABLE deposits ADD COLUMN receipt_photo MEDIUMTEXT NULL"); } catch(PDOException $col) {}
+
         $stmt = $pdo->query("
-            SELECT * FROM deposits
+            SELECT id, employee_username, deposit_date, deposit_time,
+                   description, amount, receipt_photo, created_at
+            FROM deposits
             ORDER BY deposit_date DESC, deposit_time DESC
         ");
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
     } catch(PDOException $e) {
         error_log($e->getMessage());
         echo json_encode([]);
+    }
+}
+
+// ── SAVE ID PHOTO (separate endpoint for large base64 payloads) ──
+function saveIdPhoto() {
+    global $pdo;
+    if (!isset($_SESSION['user'])) {
+        echo json_encode(['success' => false, 'message' => 'Not logged in']);
+        return;
+    }
+
+    $data = json_decode(file_get_contents('php://input'), true);
+    $id = intval($data['id'] ?? 0);
+    $photo = $data['id_photo'] ?? '';
+
+    if ($id <= 0 || empty($photo)) {
+        echo json_encode(['success' => false, 'message' => 'Missing id or photo']);
+        return;
+    }
+
+    // Auto-add column if missing
+    try { $pdo->exec("ALTER TABLE rental_logs ADD COLUMN id_photo MEDIUMTEXT NULL"); } catch(PDOException $ignored) {}
+
+    try {
+        if ($_SESSION['user']['role'] === 'admin') {
+            $stmt = $pdo->prepare("UPDATE rental_logs SET id_photo = ? WHERE id = ?");
+            $stmt->execute([$photo, $id]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE rental_logs SET id_photo = ? WHERE id = ? AND employee_username = ?");
+            $stmt->execute([$photo, $id, $_SESSION['user']['username']]);
+        }
+        echo json_encode(['success' => true]);
+    } catch(PDOException $e) {
+        error_log($e->getMessage());
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
     }
 }
 
