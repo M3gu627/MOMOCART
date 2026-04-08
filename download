@@ -1,0 +1,95 @@
+# ── MOMO-CART • Hostinger .htaccess ──────────────────────────────────────────
+
+# ── 1. FORCE HTTPS (no redirect chain) ───────────────────────────────────────
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# ── 2. WWW → NON-WWW (pick one canonical URL, avoids redirect penalty) ───────
+# Uncomment the block you want. Default: non-www.
+RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+
+# ── 3. GZIP / DEFLATE COMPRESSION ────────────────────────────────────────────
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE text/javascript
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE image/svg+xml
+    AddOutputFilterByType DEFLATE font/woff2
+</IfModule>
+
+# ── 4. BROWSER CACHE LIFETIMES ────────────────────────────────────────────────
+<IfModule mod_expires.c>
+    ExpiresActive On
+
+    # Images — long cache (change filename to bust)
+    ExpiresByType image/webp          "access plus 1 year"
+    ExpiresByType image/png           "access plus 1 year"
+    ExpiresByType image/jpeg          "access plus 1 year"
+    ExpiresByType image/jpg           "access plus 1 year"
+    ExpiresByType image/gif           "access plus 1 year"
+    ExpiresByType image/svg+xml       "access plus 1 year"
+    ExpiresByType image/x-icon        "access plus 1 year"
+
+    # Fonts
+    ExpiresByType font/woff2          "access plus 1 year"
+    ExpiresByType font/woff           "access plus 1 year"
+    ExpiresByType application/font-woff2 "access plus 1 year"
+
+    # CSS & JS — 1 month (you're already cache-busting with ?v=8)
+    ExpiresByType text/css            "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType text/javascript     "access plus 1 month"
+
+    # HTML — short cache so updates show quickly
+    ExpiresByType text/html           "access plus 5 minutes"
+
+    # PHP responses — no cache (dynamic)
+    ExpiresByType application/json    "access plus 0 seconds"
+</IfModule>
+
+# ── 5. CACHE-CONTROL HEADERS ──────────────────────────────────────────────────
+<IfModule mod_headers.c>
+    # Immutable assets (images, fonts)
+    <FilesMatch "\.(webp|png|jpg|jpeg|gif|svg|ico|woff2|woff)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # JS & CSS (cache-busted via ?v= query string)
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
+
+    # HTML pages — revalidate quickly
+    <FilesMatch "\.html$">
+        Header set Cache-Control "public, max-age=300, must-revalidate"
+    </FilesMatch>
+
+    # API responses — never cache
+    <FilesMatch "api\.php">
+        Header set Cache-Control "no-store, no-cache, must-revalidate"
+        Header set Pragma "no-cache"
+    </FilesMatch>
+
+    # Security headers
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ── 6. PHP SESSION PERFORMANCE (Hostinger shared hosting) ────────────────────
+<IfModule mod_php.c>
+    php_value session.gc_maxlifetime 3600
+    php_flag session.use_strict_mode on
+</IfModule>
+
+# ── 7. BLOCK DIRECT ACCESS TO SENSITIVE FILES ────────────────────────────────
+<FilesMatch "(config\.php|\.env|\.git)">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# ── END ───────────────────────────────────────────────────────────────────────

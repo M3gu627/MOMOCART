@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOMO-CART • Login</title>
+
+    <!-- ✅ FIX 1: Google Fonts preconnect (speeds up font load) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- ✅ FIX 2: Preload background image so it's ready when CSS asks for it -->
+    <link rel="preload" as="image" href="momocartbg.webp">
+
+    <!-- ✅ FIX 3: Preload logo so it doesn't cause layout shift -->
+    <link rel="preload" as="image" href="logo.jpg">
+
+    <!-- ✅ FIX 4: Your own CSS loads normally (it's small, that's fine) -->
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Tailwind CDN — single correct load, supports arbitrary values like bg-[#0f172a] -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        /* Critical CSS inlined so the page looks correct before Tailwind loads */
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            position: relative;
+        }
+        .login-bg {
+            background-image: url('momocartbg.webp');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+        /* ✅ FIX: Overlay is now on a dedicated div, NOT a ::before on body.
+           The ::before on body stacks above everything including z-10 children
+           because pseudo-elements of the stacking root always paint over descendants. */
+        .login-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(2px);
+            z-index: 0;
+        }
+        .branch-btn {
+            transition: all 0.18s ease;
+            border: 1.5px solid #e2e8f0;
+        }
+        .branch-btn:hover {
+            border-color: #22d3ee;
+            background: #f0fdff;
+            color: #0e7490;
+        }
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #94a3b8;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #e2e8f0;
+        }
+    </style>
+</head>
+<body class="min-h-screen login-bg flex items-center justify-center p-4" style="position:relative;">
+
+    <!-- ✅ FIX: Dedicated overlay div instead of ::before on body -->
+    <div class="login-overlay"></div>
+
+    <div class="relative z-10 w-full max-w-md">
+
+        <!-- Card -->
+        <div class="bg-white rounded-3xl shadow-2xl overflow-hidden">
+
+            <!-- Header -->
+            <div class="bg-[#0f172a] px-8 pt-10 pb-8 text-center">
+                <!-- Always-visible styled logo text -->
+                <div id="logo-text" class="mb-2">
+                    <div class="inline-flex items-baseline gap-0 select-none">
+                        <span class="title-font font-black tracking-tight leading-none"
+                              style="font-size:2.6rem; color:#fde047; text-shadow: 0 0 24px rgba(253,224,71,0.35);">
+                            MOMO
+                        </span>
+                        <span class="title-font font-black tracking-tight leading-none"
+                              style="font-size:2.6rem; color:#22d3ee; text-shadow: 0 0 24px rgba(34,211,238,0.35);">
+                            Cart
+                        </span>
+                    </div>
+                    <div class="flex justify-center mt-2 gap-1">
+                        <div class="h-1 w-12 rounded-full bg-[#fde047] opacity-80"></div>
+                        <div class="h-1 w-12 rounded-full bg-[#22d3ee] opacity-80"></div>
+                    </div>
+                </div>
+
+                <p class="text-slate-400 text-[10px] uppercase tracking-[0.25em] font-semibold mt-4">Digital Logbook System</p>
+                <div class="mt-4 h-px bg-white/10"></div>
+            </div>
+
+            <div class="px-8 py-8 space-y-7">
+
+                <!-- Admin Login -->
+                <div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Admin Access</p>
+                    <div class="space-y-3">
+                        <div class="relative">
+                            <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                            </svg>
+                            <input id="password-input" type="password" placeholder="Enter admin password"
+                                   class="w-full pl-11 pr-11 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none transition"
+                                   onkeydown="if(event.key==='Enter') handleAdminLogin()">
+                            <button type="button" onclick="togglePassword('password-input', 'eye-admin')"
+                                    class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors focus:outline-none">
+                                <svg id="eye-admin" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <button onclick="handleAdminLogin()"
+                                class="w-full btn-gradient text-white font-bold py-3.5 rounded-xl shadow text-sm tracking-wide">
+                            SIGN IN AS ADMIN
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Divider -->
+                <div class="divider">Branch Login</div>
+
+                <!-- Branch Buttons -->
+                <div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Select your branch</p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <button onclick="showBranchModal('pampanga')"
+                                class="branch-btn bg-white text-slate-700 font-bold py-4 px-2 rounded-xl text-xs flex flex-col items-center gap-2">
+                            <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            Pampanga
+                        </button>
+                        <button onclick="showBranchModal('baliwag')"
+                                class="branch-btn bg-white text-slate-700 font-bold py-4 px-2 rounded-xl text-xs flex flex-col items-center gap-2">
+                            <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            Baliwag
+                        </button>
+                        <button onclick="showBranchModal('trinoma')"
+                                class="branch-btn bg-white text-slate-700 font-bold py-4 px-2 rounded-xl text-xs flex flex-col items-center gap-2">
+                            <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            Trinoma
+                        </button>
+                        <button onclick="showBranchModal('smartwheels')"
+                                class="branch-btn bg-white text-slate-700 font-bold py-4 px-2 rounded-xl text-xs flex flex-col items-center gap-2">
+                            <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            Smart Wheels
+                        </button>
+                        <button onclick="showBranchModal('bataan')"
+                                class="branch-btn bg-white text-slate-700 font-bold py-4 px-2 rounded-xl text-xs flex flex-col items-center gap-2">
+                            <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            Bataan
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer bar -->
+            <div class="bg-slate-50 border-t border-slate-100 px-8 py-4 text-center">
+                <p class="text-[10px] text-slate-400 tracking-widest uppercase">MOMOCart — All rights reserved</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Branch Password Modal -->
+    <dialog id="branch-modal" class="w-full max-w-sm rounded-2xl p-0 shadow-2xl overflow-hidden backdrop:bg-black/60">
+        <div class="bg-[#0f172a] px-8 py-6 text-center">
+            <!-- ✅ FIX 6: explicit width/height on modal logo too -->
+            <img src="logo.jpg" alt="MOMOCart" width="40" height="40" class="h-10 mx-auto mb-3 object-contain"
+                 onerror="this.style.display='none'">
+            <p id="branch-modal-sub" class="text-slate-300 text-xs uppercase tracking-widest font-semibold mt-1">Branch Login</p>
+        </div>
+        <div class="p-7 bg-white space-y-4">
+            <div class="relative">
+                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+                <input id="branch-password-input" type="password" placeholder="Branch password"
+                       class="w-full pl-11 pr-11 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none transition"
+                       onkeydown="if(event.key==='Enter') submitBranchLogin()">
+                <button type="button" onclick="togglePassword('branch-password-input', 'eye-branch')"
+                        class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors focus:outline-none">
+                    <svg id="eye-branch" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                    </svg>
+                </button>
+            </div>
+            <p id="branch-login-error" class="hidden text-red-500 text-xs font-semibold text-center">Incorrect password. Please try again.</p>
+            <button onclick="submitBranchLogin()"
+                    class="w-full btn-gradient text-white font-bold py-3.5 rounded-xl shadow text-sm tracking-wide">
+                SIGN IN
+            </button>
+            <button onclick="closeBranchModal()"
+                    class="w-full text-slate-400 font-semibold py-2 text-sm hover:text-slate-700 transition-colors">
+                Cancel
+            </button>
+        </div>
+    </dialog>
+
+    <!-- ✅ FIX 7: All scripts now use defer — they no longer block page rendering.
+         The page HTML paints immediately; scripts execute after in order. -->
+    <script src="globals.js?v=9" defer></script>
+    <script src="auth.js?v=9" defer></script>
+    <script src="logs.js?v=9" defer></script>
+    <script src="forms.js?v=9" defer></script>
+    <script src="summaries.js?v=9" defer></script>
+    <script src="expenses-deposit-notif.js?v=9" defer></script>
+
+    <!-- togglePassword is called inline from HTML so it must be available immediately -->
+    <script>
+        function togglePassword(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon  = document.getElementById(iconId);
+            const show  = input.type === 'password';
+            input.type  = show ? 'text' : 'password';
+            icon.innerHTML = show
+                ? `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>`
+                : `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>`;
+        }
+    </script>
+</body>
+</html>

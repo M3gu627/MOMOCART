@@ -1,0 +1,1985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>MOMO-CART • Dashboard</title>
+
+    <!-- X 1: Google Fonts preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- X 2: Preload logo used in the nav (prevents layout shift) -->
+    <link rel="preload" as="image" href="logo.png">
+
+    <!-- 3: Your CSS (small, fine to load normally) -->
+    <link rel="stylesheet" href="styles.css">
+
+    <!--  4: Tailwind CDN moved to non-render-blocking.
+         arbitrary values like bg-[#0f172a] require the CDN script version,
+         so we load it with defer instead of blocking render. -->
+    <script src="https://cdn.tailwindcss.com" defer></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; }
+        input, select, button { touch-action: manipulation; }
+
+        .tab-btn {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #64748b;
+            font-weight: 700;
+        }
+        .tab-btn.active {
+            background: white;
+            box-shadow: 0 2px 8px rgba(15,23,42,0.10);
+            color: #0f172a;
+        }
+
+        @media (max-width: 639px) {
+            #add-modal {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                border-radius: 1.5rem 1.5rem 0 0 !important;
+                position: fixed !important;
+                bottom: 0 !important;
+                top: auto !important;
+            }
+        }
+
+        /* Fullscreen on tablet/desktop */
+        @media (min-width: 640px) {
+            #add-modal {
+                width: 100vw !important;
+                max-width: 100vw !important;
+                height: 100dvh !important;
+                max-height: 100dvh !important;
+                margin: 0 !important;
+                border-radius: 0 !important;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                bottom: 0 !important;
+            }
+            #add-modal > .flex-col { height: 100dvh !important; }
+            /* Each panel scrolls independently */
+            #add-modal .sm\:overflow-y-auto { 
+                height: calc(100dvh - 65px);
+                overflow-y: auto !important;
+            }
+        }
+
+        .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-container table { min-width: 700px; }
+        #table-body tr td { padding-top: 13px; padding-bottom: 13px; }
+
+        /* Tablet: tighten cell padding so more columns fit */
+        @media (min-width: 640px) and (max-width: 1024px) {
+            .table-container table { min-width: 820px; }
+            #table-body tr td,
+            thead th { padding-left: 8px !important; padding-right: 8px !important; font-size: 10px; }
+            .action-btn { font-size: 9px !important; padding: 3px 6px !important; }
+        }
+
+        thead th {
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #94a3b8;
+        }
+
+        .action-btn {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 8px;
+            transition: all 0.15s ease;
+        }
+
+        /* Fullscreen modals: deposit + grand total edit + deposit edit */
+        #deposit-modal,
+        #gt-edit-modal,
+        #deposit-edit-modal {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100vw !important;
+            max-width: 100vw !important;
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+        }
+        @media (max-width: 639px) {
+            #deposit-modal,
+            #gt-edit-modal,
+            #deposit-edit-modal {
+                border-radius: 1.5rem 1.5rem 0 0 !important;
+                top: auto !important;
+                bottom: 0 !important;
+                height: auto !important;
+                max-height: 90dvh !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-[#f1f5f9]">
+
+    <!-- ── PAGE LOADER ── -->
+    <div id="page-loader">
+        <div class="spinner-ring"></div>
+        <span>Loading…</span>
+    </div>
+
+    <!-- ── DRAWER BACKDROP ── -->
+    <div id="drawer-backdrop" style="transition:opacity 0.3s ease;opacity:0;pointer-events:none;" class="fixed inset-0 bg-black/50 z-[90] backdrop-blur-sm" onclick="closeDrawer()"></div>
+
+    <!-- ── NAV DRAWER ── -->
+    <div id="nav-drawer" style="transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);transform:translateX(-100%);" class="fixed top-0 left-0 h-full w-64 bg-[#0f172a] z-[100] shadow-2xl flex flex-col">
+        <!-- Drawer Header -->
+        <div class="h-14 flex items-center justify-between px-4 border-b border-white/10">
+            <span class="title-font font-bold text-white">
+                <span class="text-[#fde047]">MOMO</span><span class="text-[#22d3ee]">Cart</span>
+            </span>
+            <button onclick="closeDrawer()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 transition-colors">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <!-- Drawer Nav Links -->
+        <nav class="flex-1 py-4 px-3 space-y-1">
+            <!-- Logbook (active) -->
+            <a href="dashboard.html"
+               class="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#22d3ee]/20 text-[#22d3ee] font-bold text-sm group">
+                <div class="w-8 h-8 rounded-lg bg-[#22d3ee]/20 flex items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                    </svg>
+                </div>
+                Logbook
+            </a>
+            <!-- Attendance -->
+            <a href="attendance.html"
+               class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:bg-white/10 hover:text-white transition-colors font-semibold text-sm group">
+                <div class="w-8 h-8 rounded-lg bg-white/10 group-hover:bg-cyan-500/20 flex items-center justify-center transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                Attendance
+            </a>
+            <!-- QR Tracker -->
+            <a href="qrtracker.html"
+               class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:bg-white/10 hover:text-white transition-colors font-semibold text-sm group">
+                <div class="w-8 h-8 rounded-lg bg-white/10 group-hover:bg-cyan-500/20 flex items-center justify-center transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
+                    </svg>
+                </div>
+                QR Tracker
+            </a>
+        </nav>
+        <!-- Drawer Footer -->
+        <div class="px-4 py-4 border-t border-white/10">
+            <p class="text-[9px] text-slate-500 uppercase tracking-widest text-center">MOMO-CART Digital System</p>
+        </div>
+    </div>
+
+    <!-- NAV -->
+    <nav class="bg-[#0f172a] text-white fixed top-0 left-0 right-0 z-50 border-b border-white/10">
+        <div class="max-w-[1400px] mx-auto px-4 h-14 flex justify-between items-center">
+            <!-- Logo -->
+            <div class="flex items-center gap-3">
+                <!-- Hamburger Button -->
+                <button onclick="openDrawer()" class="w-9 h-9 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                </button>
+                <!-- ✅ FIX 5: explicit width/height prevents layout shift -->
+                <img src="logo.png" alt="MOMOCart" width="32" height="32" class="h-8 object-contain"
+                     onerror="this.style.display='none'; document.getElementById('nav-logo-fallback').style.display='block'">
+                <span id="nav-logo-fallback" style="display:none" class="title-font text-lg font-bold tracking-tight">
+                    <span class="text-[#fde047]">MOMO</span><span class="text-[#22d3ee]">Cart</span>
+                </span>
+                <div class="h-5 w-px bg-white/20 mx-1"></div>
+                <span class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold hidden sm:block">Digital Logbook</span>
+            </div>
+            <!-- User + Logout -->
+            <div class="flex items-center gap-3">
+                <!-- Notification Bell (admin only, hidden by default) -->
+                <div id="notif-wrap" class="relative hidden">
+                    <button id="notif-btn" onclick="toggleNotifPanel()"
+                            class="relative w-9 h-9 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                        </svg>
+                        <span id="notif-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none"></span>
+                    </button>
+                    <!-- Dropdown Panel -->
+                    <div id="notif-panel" class="hidden absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-[200] overflow-hidden">
+                        <div class="px-4 py-3 bg-[#0f172a] flex items-center justify-between">
+                            <span class="text-xs font-bold text-white uppercase tracking-widest">Activity Log</span>
+                            <button onclick="markAllRead()" class="text-[10px] text-slate-400 hover:text-white transition-colors font-semibold uppercase tracking-wide">Mark all read</button>
+                        </div>
+                        <div id="notif-list" class="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                            <p class="py-8 text-center text-slate-400 text-xs italic">No activity yet.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="text-right hidden sm:block">
+                    <p id="user-name" class="text-xs font-bold leading-none text-white"></p>
+                    <p id="user-role" class="text-[9px] text-cyan-400 uppercase tracking-widest mt-1"></p>
+                </div>
+                <button onclick="logout()"
+                        class="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-semibold transition-colors min-h-[36px]">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span class="hidden sm:inline">Sign Out</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-[1400px] mx-auto px-3 sm:px-4 pt-18 pb-24" style="padding-top:72px">
+
+        <!-- Header Card -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
+
+            <div class="lg:col-span-3 glass-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div class="flex flex-wrap gap-5 w-full sm:w-auto items-end">
+                    <!-- Date (admin only — hidden by default, shown via renderApp for admin) -->
+                    <div id="header-date-wrap" style="display:none">
+                        <p class="stat-label mb-1">Date</p>
+                        <input id="header-date" type="date"
+                               class="bg-transparent font-bold text-base sm:text-lg focus:ring-0 border-none p-0 text-slate-800">
+                    </div>
+                    <!-- Branch (hidden for admin) -->
+                    <div id="header-branch-wrap">
+                        <p class="stat-label mb-1">Momocart</p>
+                        <input id="header-branch" type="text" value="MOMOCART LOGBOOK" readonly
+                               class="bg-transparent font-bold text-base sm:text-lg border-none p-0 cursor-default select-none text-slate-800">
+                    </div>
+
+                </div>
+
+                <!-- Action Buttons -->
+                <div id="action-buttons-wrap" class="flex flex-wrap gap-2 w-full sm:w-auto">
+                    <button id="new-entry-btn" onclick="showAddModal()"
+                            class="flex items-center gap-2 btn-gradient text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Logbook
+                    </button>
+                    <button id="expenses-btn" onclick="showExpenseModal()"
+                            class="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Expenses
+                    </button>
+                    <button id="deposit-btn" onclick="showDepositModal()"
+                            class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+                        </svg>
+                        Deposit
+                    </button>
+                    <button id="invoice-search-btn" onclick="openInvoicePanel()"
+                            class="hidden items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow transition-colors">
+                        <svg style="width:16px;height:16px;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Invoice
+                    </button>
+                </div>
+            </div>
+
+            <!-- Grand Total Card -->
+            <div class="glass-card rounded-2xl p-4 sm:p-5 bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 flex flex-col justify-center">
+                <p class="stat-label text-emerald-600 mb-1">Grand Total</p>
+                <h3 id="grand-total" class="text-2xl sm:text-3xl font-bold text-slate-800">₱0.00</h3>
+                <p id="page-total" class="text-[11px] text-slate-400 mt-1"></p>
+            </div>
+        </div>
+
+        <!-- Table Card -->
+        <div class="glass-card rounded-2xl overflow-hidden border border-slate-200">
+
+            <!-- Table Header Bar -->
+            <div id="table-header-bar" class="px-4 sm:px-5 pt-4 pb-3 border-b bg-white">
+                <div class="flex items-center justify-between gap-3">
+                    <div id="tab-container" class="inline-flex bg-slate-100 rounded-2xl p-1 flex-wrap gap-1">
+                        <button onclick="switchTab(0)" id="tab-logs"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl active">LOGS</button>
+                        <button onclick="switchTab(1)" id="tab-daily"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl hidden">DAILY</button>
+                        <button onclick="switchTab(2)" id="tab-weekly"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl hidden">WEEKLY</button>
+                        <button onclick="switchTab(3)" id="tab-monthly"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl hidden">MONTHLY</button>
+                        <button onclick="switchTab(4)" id="tab-yearly"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl hidden">YEARLY</button>
+                        <button onclick="switchTab(5)" id="tab-expenses"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl hidden">EXPENSES</button>
+                        <button onclick="switchTab(6)" id="tab-deposit"
+                                class="tab-btn px-5 py-2 text-xs rounded-xl hidden">DEPOSIT</button>
+                    </div>
+                    <button onclick="exportToCSV()"
+                            class="flex items-center gap-1.5 text-[11px] font-bold text-cyan-600 hover:text-cyan-800 py-2 px-3 rounded-lg hover:bg-cyan-50 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- LOGS TAB -->
+            <div id="logs-content">
+                <div class="table-container">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-[#0f172a] text-white">
+                            <tr>
+                                <th id="th-employee" class="px-4 py-3.5 hidden whitespace-nowrap">Branch</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">No.</th>
+                                <th id="th-employee-name" class="px-4 py-3.5 hidden whitespace-nowrap">Employee Name</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Name</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Address</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Waiver</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">O.R.</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Cart #</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Valid ID</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Time In</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Time Out</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Return</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap text-red-300">Overtime</th>
+                                <th class="px-4 py-3.5 whitespace-nowrap">Method</th>
+                                <th class="px-4 py-3.5 text-right whitespace-nowrap">Amount</th>
+                                <th class="px-4 py-3.5 text-right whitespace-nowrap">Add'l</th>
+                                <th class="px-4 py-3.5 text-right whitespace-nowrap">Total</th>
+                                <th class="px-4 py-3.5 text-center whitespace-nowrap">ID Photo</th>
+                                <th class="px-4 py-3.5 text-center whitespace-nowrap">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="divide-y divide-slate-100 bg-white"></tbody>
+                    </table>
+                </div>
+                <div id="empty-state" class="hidden p-16 text-center text-slate-300 text-sm">
+                    No entries logged for this date.
+                </div>
+            </div>
+
+            <!-- DAILY TAB -->
+            <div id="daily-content" class="hidden p-5">
+                <div class="flex flex-wrap items-center gap-3 mb-4">
+                    <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Daily Sales Summary</h3>
+                    <span id="daily-month-label" class="text-[10px] bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-bold uppercase tracking-wide"></span>
+                    <span id="daily-branch-label" class="text-[10px] bg-cyan-100 text-cyan-700 px-3 py-1 rounded-full font-bold uppercase tracking-wide hidden"></span>
+                    <div class="ml-auto flex items-center gap-2">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date:</label>
+                        <select id="daily-date-picker" onchange="onDailyDateChange()"
+                                class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-emerald-400 focus:outline-none shadow-sm">
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-[#0f172a] text-white">
+                            <tr>
+                                <th class="px-4 py-3.5 text-left">Staff</th>
+                                <th class="px-4 py-3.5 text-left">Day</th>
+                                <th class="px-4 py-3.5 text-left">Date</th>
+                                <th class="px-4 py-3.5 text-right">Total Sales</th>
+                                <th class="px-4 py-3.5 text-right">GCash</th>
+                                <th class="px-4 py-3.5 text-right">Cash on Hand</th>
+                                <th class="px-4 py-3.5 text-right">Expenses</th>
+                                <th class="px-4 py-3.5 text-right">Net Total</th>
+                                <th class="px-4 py-3.5 text-left">Expense Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="daily-table-body" class="divide-y bg-white"></tbody>
+                        <tfoot class="bg-slate-50 font-bold border-t-2 border-slate-200">
+                            <tr>
+                                <td colspan="3" class="px-4 py-3.5 text-right text-[10px] uppercase tracking-widest text-slate-500">Totals</td>
+                                <td id="daily-total-sales" class="px-4 py-3.5 text-right font-mono text-emerald-700"></td>
+                                <td id="daily-total-gcash" class="px-4 py-3.5 text-right font-mono text-blue-600"></td>
+                                <td id="daily-total-cash" class="px-4 py-3.5 text-right font-mono"></td>
+                                <td id="daily-total-expenses" class="px-4 py-3.5 text-right font-mono text-amber-600">₱0.00</td>
+                                <td id="daily-grand-total" class="px-4 py-3.5 text-right font-mono font-bold text-slate-800"></td>
+                                <td class="px-4 py-3.5 text-[10px] text-slate-400 italic">Cash on Hand − Expenses</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <!-- Expenses detail table rendered by JS -->
+                <div id="daily-expenses-detail" class="mt-2"></div>
+                <!-- Deposit detail table (admin only) rendered by JS -->
+                <div id="daily-deposit-detail" class="mt-2"></div>
+            </div>
+
+            <!-- EXPENSES TAB (employee) -->
+            <div id="expenses-content" class="hidden p-5">
+                <div class="flex flex-wrap items-center gap-3 mb-4">
+                    <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Daily Expenses</h3>
+                    <span id="expenses-date-label" class="text-[10px] bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-bold uppercase tracking-wide"></span>
+                </div>
+                <div class="table-container overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-[#0f172a] text-white">
+                            <tr>
+                                <th class="px-4 py-3.5 text-left whitespace-nowrap">Date</th>
+                                <th class="px-4 py-3.5 text-left whitespace-nowrap">Particulars</th>
+                                <th class="px-4 py-3.5 text-right whitespace-nowrap">Amount</th>
+                                <th class="px-4 py-3.5 text-center whitespace-nowrap">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="expenses-tab-body" class="divide-y bg-white"></tbody>
+                        <tfoot class="bg-amber-50 font-bold border-t-2 border-amber-100">
+                            <tr>
+                                <td colspan="2" class="px-4 py-3.5 text-right text-[10px] uppercase tracking-widest text-amber-600">Total Today</td>
+                                <td id="expenses-tab-total" class="px-4 py-3.5 text-right font-mono text-amber-700">₱0.00</td>
+                                <td class="px-4 py-3.5"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div id="expenses-tab-empty" class="hidden py-12 text-center text-slate-300 text-sm italic">No expenses recorded today.</div>
+            </div>
+
+            <!-- DEPOSIT TAB (employee) -->
+            <div id="deposit-content" class="hidden p-5">
+                <div class="flex flex-wrap items-center gap-3 mb-4">
+                    <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Daily Deposits</h3>
+                    <span id="deposit-date-label" class="text-[10px] bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold uppercase tracking-wide"></span>
+                    <button onclick="showDepositModal()"
+                            class="ml-auto flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-3 py-2 rounded-xl shadow transition-colors active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+                        New Deposit
+                    </button>
+                </div>
+                <div class="table-container overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-[#0f172a] text-white">
+                            <tr>
+                                <th class="px-4 py-3.5 text-left whitespace-nowrap">Date</th>
+                                <th class="px-4 py-3.5 text-left whitespace-nowrap">Time</th>
+                                <th class="px-4 py-3.5 text-left whitespace-nowrap">Description</th>
+                                <th class="px-4 py-3.5 text-center whitespace-nowrap">Receipt</th>
+                                <th class="px-4 py-3.5 text-right whitespace-nowrap">Amount</th>
+                                <th class="px-4 py-3.5 text-center whitespace-nowrap">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="deposit-tab-body" class="divide-y bg-white"></tbody>
+                        <tfoot class="bg-blue-50 font-bold border-t-2 border-blue-100">
+                            <tr>
+                                <td colspan="4" class="px-4 py-3.5 text-right text-[10px] uppercase tracking-widest text-blue-600">Total Today</td>
+                                <td id="deposit-tab-total" class="px-4 py-3.5 text-right font-mono text-blue-700">₱0.00</td>
+                                <td class="px-4 py-3.5"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div id="deposit-tab-empty" class="hidden py-12 text-center text-slate-300 text-sm italic">No deposits recorded today.</div>
+            </div>
+
+            <!-- WEEKLY TAB -->
+            <div id="weekly-content" class="hidden p-5">
+                <div class="flex flex-wrap items-center gap-3 mb-5">
+                    <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Weekly Sales Summary</h3>
+                    <select id="week-picker" onchange="onWeekPickerChange()"
+                            class="ml-auto bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-cyan-400 focus:outline-none shadow-sm">
+                        <option value="">— Select a week —</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Sales Table -->
+                    <div>
+                        <p class="stat-label mb-2">Sales Breakdown</p>
+                        <table class="w-full text-xs">
+                            <thead class="bg-[#0f172a] text-white">
+                                <tr>
+                                    <th class="px-4 py-3.5 text-left">Date</th>
+                                    <th class="px-4 py-3.5 text-right">Total Sales</th>
+                                    <th class="px-4 py-3.5 text-right">GCash</th>
+                                    <th class="px-4 py-3.5 text-right">Expenses</th>
+                                    <th class="px-4 py-3.5 text-right">Cash</th>
+                                    <th class="px-4 py-3.5 text-right">Net Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="weekly-sales-body" class="divide-y bg-white"></tbody>
+                            <tfoot class="bg-emerald-50 font-bold border-t-2 border-emerald-100">
+                                <tr>
+                                    <td class="px-4 py-3.5 text-right text-[10px] uppercase tracking-widest text-slate-500">Total</td>
+                                    <td id="weekly-total-sales" class="px-4 py-3.5 text-right font-mono text-emerald-700"></td>
+                                    <td id="weekly-total-gcash" class="px-4 py-3.5 text-right font-mono text-blue-600"></td>
+                                    <td id="weekly-total-expenses" class="px-4 py-3.5 text-right font-mono text-amber-600">₱0.00</td>
+                                    <td id="weekly-total-cash" class="px-4 py-3.5 text-right font-mono"></td>
+                                    <td id="weekly-total-net" class="px-4 py-3.5 text-right font-mono font-bold text-slate-800"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- Expenses Table -->
+                    <div>
+                        <p class="stat-label mb-2 text-amber-600">Expenses This Week</p>
+                        <table class="w-full text-xs">
+                            <thead class="bg-[#0f172a] text-white">
+                                <tr>
+                                    <th class="px-4 py-3.5 text-left">Date</th>
+                                    <th class="px-4 py-3.5 text-left">Particulars</th>
+                                    <th class="px-4 py-3.5 text-right">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody id="weekly-expenses-body" class="divide-y bg-white">
+                                <tr><td colspan="3" class="py-10 text-center text-slate-400 italic">No expenses recorded yet</td></tr>
+                            </tbody>
+                            <tfoot class="bg-amber-50 font-bold border-t-2 border-amber-100">
+                                <tr>
+                                    <td colspan="2" class="px-4 py-3.5 text-right text-[10px] uppercase tracking-widest text-amber-600">Total Weekly Expense</td>
+                                    <td id="weekly-total-expense" class="px-4 py-3.5 text-right font-mono text-amber-600">₱0.00</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- MONTHLY TAB -->
+            <div id="monthly-content" class="hidden p-5">
+                <!-- Header + Pickers -->
+                <div class="flex flex-wrap items-center gap-3 mb-5">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Monthly Sales Summary</h3>
+                        <p id="monthly-branch-subtitle" class="text-[10px] text-cyan-600 font-bold uppercase tracking-widest mt-0.5 hidden"></p>
+                    </div>
+                    <div class="ml-auto flex items-center gap-2">
+                        <select id="month-picker" onchange="onMonthPickerChange()"
+                                class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-cyan-400 focus:outline-none shadow-sm">
+                            <option value="1">January</option>
+                            <option value="2">February</option>
+                            <option value="3">March</option>
+                            <option value="4">April</option>
+                            <option value="5">May</option>
+                            <option value="6">June</option>
+                            <option value="7">July</option>
+                            <option value="8">August</option>
+                            <option value="9">September</option>
+                            <option value="10">October</option>
+                            <option value="11">November</option>
+                            <option value="12">December</option>
+                        </select>
+                        <select id="month-year-picker" onchange="onMonthPickerChange()"
+                                class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-cyan-400 focus:outline-none shadow-sm">
+                        </select>
+                    </div>
+                </div>
+
+                <!-- ── SECTION 1: SALES TABLE (Excel style) ── -->
+                <div class="mb-8">
+                    <div class="text-center mb-3">
+                        <h4 id="monthly-sales-title" class="text-base font-extrabold text-slate-800 uppercase tracking-widest"></h4>
+                        <p id="monthly-sales-month-label" class="text-[11px] font-bold text-slate-500 uppercase tracking-wide mt-0.5"></p>
+                    </div>
+                    <div class="table-container overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="bg-[#fde047] text-slate-900">
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-r border-yellow-300">Staff</th>
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-r border-yellow-300">Day</th>
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-r border-yellow-300">Date</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">Total Sales</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">G-Cash</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">Cash on Hand</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">Expenses</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide">Total</th>
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-l border-yellow-300">Expenses Description</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-l border-yellow-300">Edit</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monthly-sales-body" class="divide-y divide-slate-100 bg-white"></tbody>
+                            <tfoot class="bg-slate-800 text-white font-bold border-t-2 border-slate-700">
+                                <tr>
+                                    <td colspan="3" class="px-3 py-3 text-right text-[10px] uppercase tracking-widest text-slate-300">TOTAL</td>
+                                    <td id="monthly-total-sales" class="px-3 py-3 text-right font-mono text-emerald-300"></td>
+                                    <td id="monthly-total-gcash" class="px-3 py-3 text-right font-mono text-blue-300"></td>
+                                    <td id="monthly-total-cash" class="px-3 py-3 text-right font-mono text-white"></td>
+                                    <td id="monthly-total-expenses" class="px-3 py-3 text-right font-mono text-amber-300"></td>
+                                    <td id="monthly-total-net" class="px-3 py-3 text-right font-mono text-emerald-200 font-extrabold"></td>
+                                    <td class="px-3 py-3"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ── SECTION 2: DEPOSIT TABLE ── -->
+                <div class="mb-8">
+                    <div class="flex items-center justify-center gap-3 mb-3 flex-wrap">
+                        <div class="text-center">
+                            <h4 class="text-base font-extrabold text-slate-800 uppercase tracking-widest">Deposit</h4>
+                            <div class="flex justify-center gap-6 mt-1">
+                                <p id="monthly-deposit-month-label" class="text-[11px] font-bold text-slate-500 uppercase tracking-wide"></p>
+                                <p id="monthly-deposit-branch-label" class="text-[11px] font-bold text-cyan-600 uppercase tracking-wide hidden"></p>
+                            </div>
+                        </div>
+                        <button onclick="openDepositEdit()"
+                                class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-xl shadow transition-colors">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            Edit
+                        </button>
+                        <button onclick="addManualDepositRow()"
+                                class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-xl shadow transition-colors">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+                            Add Row
+                        </button>
+                    </div>
+                    <div class="table-container overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="bg-[#fde047] text-slate-900">
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-r border-yellow-300">Date of Sales</th>
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-r border-yellow-300">Deposit Date</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">Total Cash Sales Covered</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">Deposit Amount (Receipt)</th>
+                                    <th class="px-3 py-3 text-right font-extrabold uppercase tracking-wide border-r border-yellow-300">Discrepancy</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Status</th>
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide border-r border-yellow-300">Description</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Receipt Photo</th>
+                                    <th class="px-3 py-3 text-left font-extrabold uppercase tracking-wide">Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monthly-deposit-body" class="divide-y divide-slate-100 bg-white">
+                                <tr id="deposit-empty-row"><td colspan="9" class="py-10 text-center text-slate-400 italic text-xs">No deposit records yet — click "Add Row" to start.</td></tr>
+                            </tbody>
+                            <tfoot class="bg-slate-800 text-white font-bold border-t-2 border-slate-700">
+                                <tr>
+                                    <td colspan="2" class="px-3 py-3 text-right text-[10px] uppercase tracking-widest text-slate-300">TOTAL</td>
+                                    <td id="monthly-deposit-total-covered" class="px-3 py-3 text-right font-mono text-emerald-300"></td>
+                                    <td id="monthly-deposit-total-receipt" class="px-3 py-3 text-right font-mono text-blue-300"></td>
+                                    <td id="monthly-deposit-total-discrepancy" class="px-3 py-3 text-right font-mono text-amber-300"></td>
+                                    <td class="px-3 py-3"></td><td class="px-3 py-3"></td><td class="px-3 py-3"></td><td class="px-3 py-3"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ── SECTION 3: GRAND TOTAL ── -->
+                <div>
+                    <div class="flex items-center justify-center gap-3 mb-3">
+                        <h4 class="text-base font-extrabold text-slate-800 uppercase tracking-widest">Grand Total</h4>
+                        <button onclick="openGrandTotalEdit()"
+                                class="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-xl shadow transition-colors">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            Edit
+                        </button>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="bg-[#fde047] text-slate-900">
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Total Sales</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Expenses</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Salary 15th</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Salary 30th</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">SOA</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Waiver</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">O.R.</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">VAT 25%</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide border-r border-yellow-300">Total Expenses</th>
+                                    <th class="px-3 py-3 text-center font-extrabold uppercase tracking-wide">Net Sales</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white">
+                                <tr class="border-b border-slate-100">
+                                    <td id="gt-total-sales"    class="px-3 py-4 text-center font-mono font-bold text-emerald-700"></td>
+                                    <td id="gt-expenses"       class="px-3 py-4 text-center font-mono text-amber-600"></td>
+                                    <td id="gt-salary15"       class="px-3 py-4 text-center font-mono text-slate-600">—</td>
+                                    <td id="gt-salary30"       class="px-3 py-4 text-center font-mono text-slate-600">—</td>
+                                    <td id="gt-soa"            class="px-3 py-4 text-center font-mono text-slate-600">—</td>
+                                    <td id="gt-waiver"         class="px-3 py-4 text-center font-mono text-slate-600">—</td>
+                                    <td id="gt-or"             class="px-3 py-4 text-center font-mono text-slate-600">—</td>
+                                    <td id="gt-vat"            class="px-3 py-4 text-center font-mono text-slate-600">—</td>
+                                    <td id="gt-total-expenses" class="px-3 py-4 text-center font-mono font-bold text-amber-700"></td>
+                                    <td id="gt-net-sales"      class="px-3 py-4 text-center font-mono font-extrabold text-slate-900 text-sm"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- YEARLY TAB -->
+            <div id="yearly-content" class="hidden p-5">
+                <div class="flex flex-wrap items-center gap-3 mb-5">
+                    <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Yearly Sales Summary</h3>
+                    <select id="year-picker" onchange="onYearPickerChange()"
+                            class="ml-auto bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-cyan-400 focus:outline-none shadow-sm">
+                    </select>
+                </div>
+                <div class="space-y-8">
+                    <!-- Gross Sales -->
+                    <div>
+                        <p class="stat-label mb-2">Yearly Gross Sales</p>
+                        <div class="table-container overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-[#0f172a] text-white">
+                                    <tr id="yearly-gross-header"></tr>
+                                </thead>
+                                <tbody id="yearly-gross-body" class="divide-y bg-white"></tbody>
+                                <tfoot class="bg-emerald-50 font-bold border-t-2 border-emerald-100">
+                                    <tr id="yearly-gross-foot"></tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Expenses -->
+                    <div>
+                        <p class="stat-label mb-2 text-amber-600">Yearly Expenses</p>
+                        <div class="table-container overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-[#0f172a] text-white">
+                                    <tr id="yearly-exp-header"></tr>
+                                </thead>
+                                <tbody id="yearly-exp-body" class="divide-y bg-white"></tbody>
+                                <tfoot class="bg-amber-50 font-bold border-t-2 border-amber-100">
+                                    <tr id="yearly-exp-foot"></tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Net Sales -->
+                    <div>
+                        <p class="stat-label mb-2 text-slate-700">Yearly Net Sales</p>
+                        <div class="table-container overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-[#0f172a] text-white">
+                                    <tr id="yearly-net-header"></tr>
+                                </thead>
+                                <tbody id="yearly-net-body" class="divide-y bg-white"></tbody>
+                                <tfoot class="bg-slate-50 font-bold border-t-2 border-slate-200">
+                                    <tr id="yearly-net-foot"></tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Deposit -->
+                    <div>
+                        <p class="stat-label mb-2 text-blue-600">Deposit (Cash Only)</p>
+                        <div class="table-container overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-[#0f172a] text-white">
+                                    <tr id="yearly-dep-header"></tr>
+                                </thead>
+                                <tbody id="yearly-dep-body" class="divide-y bg-white"></tbody>
+                                <tfoot class="bg-blue-50 font-bold border-t-2 border-blue-100">
+                                    <tr id="yearly-dep-foot"></tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- FAB (mobile, employee only) -->
+    <button id="fab-btn" onclick="showAddModal()"
+            class="sm:hidden fixed bottom-6 right-6 z-40 btn-gradient text-white w-14 h-14 rounded-full shadow-2xl text-2xl font-bold flex items-center justify-center active:scale-95 transition-transform">
+        +
+    </button>
+
+    <!-- NEW ENTRY MODAL — scrollable on mobile, fullscreen two-column on sm+ -->
+    <dialog id="add-modal" class="
+        w-full p-0 shadow-2xl bg-white overflow-hidden
+        max-w-full max-h-full
+        sm:rounded-none sm:w-screen sm:h-screen
+        rounded-t-3xl
+    ">
+        <!-- ── MOBILE: single scrollable column (unchanged) ── -->
+        <!-- ── SM+: fixed fullscreen, two-column, no scroll ── -->
+        <div class="flex flex-col h-full sm:h-screen">
+
+            <!-- Header bar -->
+            <div class="flex justify-between items-center px-5 sm:px-8 py-4 border-b bg-white shrink-0 shadow-sm">
+                <div>
+                    <h3 class="text-base sm:text-lg font-bold text-slate-800">New Rental Entry</h3>
+                    <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Fill in customer details below</p>
+                </div>
+                <button onclick="hideAddModal()" class="text-slate-300 hover:text-slate-700 transition-colors w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto sm:overflow-hidden">
+
+                <!-- Mobile: single column scroll / Desktop: two-column fixed -->
+                <div class="flex flex-col sm:flex-row sm:h-full">
+
+                    <!-- ══ LEFT PANEL — Customer Info ══ -->
+                    <div class="sm:w-1/2 sm:border-r border-slate-100 px-5 sm:px-8 py-5 sm:overflow-y-auto space-y-4">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Customer Information</p>
+
+                        <!-- Name + Employee Name + Address -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Customer Name</label>
+                                <input id="form-name" type="text" autocomplete="off"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Employee Name</label>
+                                <input id="form-employee-name" type="text" autocomplete="off" placeholder="Staff on duty"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Address -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Address</label>
+                            <input id="form-address" type="text" autocomplete="off" placeholder="e.g. Brgy. Sta. Cruz, QC"
+                                   class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                        </div>
+
+                        <!-- Waiver + OR -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Waiver</label>
+                                <input id="form-waiver" type="text" placeholder="Signed"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">O.R. #</label>
+                                <input id="form-or" type="text" inputmode="numeric"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                        </div>
+
+                        <!-- Cart + Time In + Duration + Time Out -->
+                        <!-- Row 1: Cart + Time In (with clock + SET) -->
+                        <div class="grid gap-3" style="grid-template-columns: 90px 1fr;">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Cart #</label>
+                                <input id="form-cart" type="text" inputmode="numeric"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time In</label>
+                                <div class="flex gap-1.5 items-stretch">
+                                    <!-- Hidden actual time input (24h value stored here) -->
+                                    <input id="form-timein" type="time" onchange="onTimeInChange()"
+                                           class="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none min-w-0">
+                                    <button type="button" onclick="stampTimeInNow()"
+                                            class="shrink-0 w-10 min-h-[48px] bg-cyan-500 active:bg-cyan-700 text-white text-[9px] font-bold rounded-xl leading-tight flex items-center justify-center">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                    </button>
+                                    <button type="button" onclick="confirmTimeIn()" class="shrink-0 px-3 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl">
+                                        SET
+                                    </button>
+                                </div>
+                                <!-- 12h display pill shown after time is set -->
+                                <p id="timein-display" class="hidden mt-1 text-[11px] font-bold text-cyan-600 font-mono"></p>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Duration + Time Out -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Duration</label>
+                                <select id="form-duration" onchange="autoCalculateTimeOut(); autoSetRentalAmount();"
+                                        class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                    <option value="">-- Select --</option>
+                                    <option value="15kiddie">15 Mins (Kiddie Cart)</option>
+                                    <option value="30">30 Mins</option>
+                                    <option value="60">1 Hour</option>
+                                    <option value="120">2 Hours</option>
+                                    <option value="180">3 Hours</option>
+                                    <option value="unlimited">Unlimited</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Time Out</label>
+                                <input id="form-timeout" type="time"
+                                       class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                <p id="timeout-display" class="hidden mt-1 text-[11px] font-bold text-rose-500 font-mono"></p>
+                            </div>
+                        </div>
+
+                        <!-- Return Time -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Return Time</label>
+                            <div class="flex gap-2">
+                                <input id="form-return-time" type="time"
+                                       oninput="calcOvertime(); updateReturnButtonState();"
+                                       onchange="calcOvertime(); updateReturnButtonState();"
+                                       class="min-w-0 flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400 focus:border-transparent outline-none">
+                                <button id="form-return-btn" type="button" onclick="stampReturnNow()"
+                                        class="shrink-0 px-4 min-w-[80px] min-h-[48px] bg-emerald-500 active:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-opacity">
+                                    Return
+                                </button>
+                                <button type="button" onclick="confirmReturnTime()" class="shrink-0 px-4 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl">
+                                    SET
+                                </button>
+                            </div>
+                            <p id="returntime-display" class="hidden mt-1 text-[11px] font-bold text-emerald-600 font-mono"></p>
+                        </div>
+
+                        <!-- Overtime (read-only, auto-calculated, always visible) -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Overtime</label>
+                            <div id="overtime-wrap" class="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 min-h-[52px]">
+                                <svg class="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <p id="overtime-label" class="text-sm font-mono text-slate-300">--:--:--</p>
+                            </div>
+                        </div>
+
+                        <!-- Target Branch (admin only) -->
+                        <div id="form-branch-wrap" class="hidden border-t pt-4">
+                            <label class="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-1.5 block">&#128081; Target Branch <span class="text-red-400">*</span></label>
+                            <select id="form-branch"
+                                    class="w-full p-3.5 bg-purple-50 border-2 border-purple-200 rounded-xl text-sm font-semibold text-purple-900 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none">
+                                <option value="">— Select Target Branch —</option>
+                                <option value="admin">Admin (Parent Account)</option>
+                                <option value="baliwag">Baliwag</option>
+                                <option value="pampanga">Pampanga</option>
+                                <option value="trinoma">Trinoma</option>
+                                <option value="smartwheels">Smart Wheels</option>
+                                <option value="bataan">Bataan</option>
+                            </select>
+                        </div>
+
+                    </div>
+
+                    <!-- CAMERA OVERLAY -->
+                    <div id="id-camera-overlay" class="hidden fixed inset-0 z-[10001] bg-black flex flex-col">
+                        <div class="flex items-center justify-between px-5 py-4 bg-[#0f172a]">
+                            <div>
+                                <p class="text-white font-bold text-sm">Take Customer ID Photo</p>
+                                <p class="text-slate-400 text-[10px] uppercase tracking-widest mt-0.5">Position the ID clearly in the frame</p>
+                            </div>
+                            <button onclick="closeIdCamera()" class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                        <div class="flex-1 relative overflow-hidden">
+                            <video id="id-camera-video" autoplay playsinline class="absolute inset-0 w-full h-full object-cover"></video>
+                            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div class="border-2 border-cyan-400 rounded-xl w-4/5 max-w-sm h-48 opacity-70" style="box-shadow:0 0 0 9999px rgba(0,0,0,0.45)"></div>
+                            </div>
+                        </div>
+                        <canvas id="id-camera-canvas" class="hidden"></canvas>
+                        <div class="px-5 py-5 bg-[#0f172a] flex items-center justify-center gap-4">
+                            <button onclick="captureIdPhoto()"
+                                    class="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-xl active:scale-90 transition-transform border-4 border-cyan-400">
+                                <svg class="w-7 h-7 text-slate-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                    <circle cx="12" cy="13" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ══ RIGHT PANEL — Payment + Total + Save ══ -->
+                    <div class="sm:w-1/2 px-5 sm:px-8 py-5 flex flex-col gap-4 sm:overflow-y-auto">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Payment Details</p>
+
+                        <!-- Method only -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Method</label>
+                            <select id="form-payment-method" onchange="handlePaymentMethodChange()"
+                                    class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                <option value="Cash">Cash</option>
+                                <option value="GCash">GCash</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <!-- Hidden amount (auto-set, not shown to user) -->
+                        <input id="form-amount" type="hidden">
+
+                        <!-- Other payment -->
+                        <div id="payment-other-wrap" class="hidden">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Specify Payment Type</label>
+                            <input id="form-payment-other" type="text" placeholder="e.g. Bank Transfer..."
+                                   class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                        </div>
+
+                        <!-- Additional Charges -->
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Additional Charges</label>
+                            <input id="form-add-charge" type="number" inputmode="decimal" oninput="updateLiveTotal()" placeholder="0"
+                                   class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none font-mono text-right">
+                        </div>
+
+                        <!-- Valid ID -->
+                        <div class="border-t pt-4">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 block">Valid ID Type</label>
+                            <select id="form-validid" onchange="handleValidIdChange()"
+                                    class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 focus:border-transparent outline-none">
+                                <option value="Regular">Regular</option>
+                                <option value="Senior">Senior</option>
+                                <option value="PWD">PWD</option>
+                                <option value="Kiddie">Kiddie Cart</option>
+                            </select>
+                            <p id="discount-note" class="hidden text-[11px] text-emerald-600 font-bold mt-2">Senior / PWD Discount Applied</p>
+                        </div>
+
+                        <!-- ID Photo Capture -->
+                        <div class="border-t pt-4">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Customer ID Photo <span class="text-red-400">*</span></label>
+                            <div id="id-photo-preview-wrap" class="hidden mb-3 relative">
+                                <img id="id-photo-preview" src="" alt="ID Preview"
+                                     class="w-full max-h-40 object-cover rounded-xl border-2 border-cyan-300 shadow">
+                                <button type="button" onclick="clearIdPhoto()"
+                                        class="absolute top-2 right-2 w-7 h-7 bg-red-500 text-white rounded-full text-xs font-bold flex items-center justify-center shadow hover:bg-red-600 active:scale-95 transition-all">&#x2715;</button>
+                            </div>
+                            <div id="id-photo-placeholder" class="w-full h-24 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center gap-2 text-slate-400 mb-3">
+                                <svg class="w-7 h-7 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V4a2 2 0 114 0v2m-4 0a2 2 0 104 0M9 12h6m-3-3v6"/>
+                                </svg>
+                                <span class="text-[10px] font-semibold uppercase tracking-wide">No ID photo yet</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" onclick="openIdCamera()"
+                                        class="flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-700 active:scale-95 text-white text-xs font-bold py-3 rounded-xl transition-all shadow">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                        <circle cx="12" cy="13" r="3"/>
+                                    </svg>
+                                    Camera
+                                </button>
+                                <label class="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-700 active:scale-95 text-white text-xs font-bold py-3 rounded-xl transition-all shadow cursor-pointer">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                    </svg>
+                                    Upload
+                                    <input id="id-photo-file" type="file" accept="image/*" class="hidden" onchange="handleIdPhotoUpload(event)">
+                                </label>
+                            </div>
+                            <input id="form-id-photo" type="hidden">
+                        </div>
+
+                        <!-- Total Display — clean, no dark background -->
+                        <div class="border border-emerald-200 bg-emerald-50 rounded-2xl px-5 py-4 flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Entry Total</span>
+                            <h2 id="live-total" class="text-2xl font-bold text-emerald-700">₱0.00</h2>
+                        </div>
+
+                        <!-- Save Button -->
+                        <button id="submit-new-entry-btn" onclick="submitNewEntry()"
+                                class="w-full btn-gradient text-white py-4 rounded-2xl font-bold text-base shadow active:scale-95 transition-transform shrink-0">
+                            Save to Digital Logbook
+                        </button>
+                    </div>
+
+                </div><!-- end two-col -->
+            </div><!-- end body -->
+        </div><!-- end flex-col -->
+    </dialog>
+
+    <!-- EXPENSES MODAL -->
+    <dialog id="expense-modal" class="w-full max-w-md rounded-3xl p-0 shadow-2xl overflow-hidden">
+        <div class="p-6 sm:p-8">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800">Record Expense</h3>
+                    <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Enter expense details</p>
+                </div>
+                <button onclick="hideExpenseModal()"
+                        class="text-slate-300 hover:text-slate-700 w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Date</label>
+                    <input id="exp-date" type="date"
+                           class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Particulars / Description</label>
+                    <input id="exp-particulars" type="text" placeholder="e.g. Water, Alcohol, Snacks..."
+                           class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Amount</label>
+                    <input id="exp-amount" type="number" step="0.01" placeholder="0.00"
+                           class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none font-mono text-right">
+                </div>
+            </div>
+
+            <!-- Admin: Target Branch selector -->
+            <div id="exp-branch-row" class="hidden mt-2">
+                <label class="text-[10px] font-bold text-purple-600 uppercase tracking-widest block mb-1">&#128081; Target Branch <span class="text-red-400">*</span></label>
+                <select id="exp-target-branch"
+                        class="w-full p-3.5 bg-purple-50 border-2 border-purple-200 rounded-xl text-sm font-semibold text-purple-900 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none">
+                    <option value="">— Select Branch —</option>
+                    <option value="admin">Admin (Parent Account)</option>
+                    <option value="baliwag">Baliwag</option>
+                    <option value="pampanga">Pampanga</option>
+                    <option value="trinoma">Trinoma</option>
+                    <option value="smartwheels">Smart Wheels</option>
+                    <option value="bataan">Bataan</option>
+                </select>
+            </div>
+
+            <button onclick="submitExpense()"
+                    class="mt-6 w-full bg-amber-500 hover:bg-amber-600 text-white py-4 rounded-2xl font-bold text-sm shadow active:scale-95 transition-transform">
+                Save Expense
+            </button>
+        </div>
+    </dialog>
+
+    <!-- DELETE CONFIRMATION MODAL -->
+    <dialog id="delete-modal" class="w-full max-w-sm rounded-3xl p-0 shadow-2xl overflow-hidden">
+        <div class="p-6 sm:p-8">
+            <div class="flex flex-col items-center text-center gap-3 mb-6">
+                <div class="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+                    <svg class="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800">Delete Record?</h3>
+                    <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest">This cannot be undone</p>
+                </div>
+                <p id="delete-modal-desc" class="text-sm text-slate-600 bg-slate-50 rounded-xl px-4 py-2 w-full"></p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()"
+                        class="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmDelete()"
+                        class="flex-1 py-3 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm transition-colors active:scale-95">
+                    Yes, Delete
+                </button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- DEPOSIT MODAL — redesigned with receipt photo upload -->
+    <dialog id="deposit-modal" class="w-full p-0 shadow-2xl bg-white overflow-hidden max-w-full max-h-full rounded-t-3xl sm:rounded-none backdrop:bg-black/60">
+        <div class="flex flex-col" style="height:100dvh">
+            <!-- Header -->
+            <div class="bg-[#0f172a] px-5 sm:px-8 py-4 flex items-center justify-between shrink-0">
+                <div>
+                    <h3 class="text-base font-bold text-white">Record Deposit</h3>
+                    <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Fill in details &amp; attach receipt</p>
+                </div>
+                <button onclick="hideDepositModal()"
+                        class="text-slate-400 hover:text-white w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/10 transition-colors active:scale-90">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto bg-slate-50">
+                <div class="max-w-lg w-full mx-auto px-5 sm:px-8 py-6 space-y-5">
+
+                    <!-- Amount -->
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Amount Deposited</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-bold text-slate-400">₱</span>
+                            <input id="dep-amount" type="number" step="0.01" inputmode="decimal" placeholder="0.00"
+                                   class="w-full pl-10 pr-4 py-4 bg-white border-2 border-slate-200 rounded-2xl text-2xl font-bold font-mono text-right focus:ring-0 focus:border-blue-400 outline-none transition-colors shadow-sm">
+                        </div>
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Description</label>
+                        <input id="dep-description" type="text" placeholder="e.g. Bank deposit, cash handover…"
+                               class="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-2xl text-sm focus:ring-0 focus:border-blue-400 outline-none transition-colors shadow-sm">
+                    </div>
+
+                    <!-- Receipt Photo -->
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Receipt Photo <span class="text-slate-400 normal-case font-normal">(optional)</span></label>
+
+                        <!-- Preview -->
+                        <div id="dep-receipt-preview-wrap" class="hidden mb-3 relative">
+                            <img id="dep-receipt-img" src="" alt="Receipt"
+                                 class="w-full max-h-52 object-contain rounded-2xl border-2 border-blue-300 bg-white shadow">
+                            <button type="button" onclick="removeDepositReceipt()"
+                                    class="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full text-xs font-bold flex items-center justify-center shadow hover:bg-red-600 active:scale-95 transition-all">&#x2715;</button>
+                        </div>
+
+                        <!-- Placeholder -->
+                        <div id="dep-receipt-placeholder" class="w-full h-32 bg-white border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center gap-2 text-slate-400 mb-3">
+                            <svg class="w-8 h-8 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            <span class="text-[10px] font-semibold uppercase tracking-wide">No receipt photo yet</span>
+                        </div>
+
+                        <!-- Buttons -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" onclick="openDepReceiptCamera()"
+                                    class="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold py-3 rounded-xl transition-all shadow">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                    <circle cx="12" cy="13" r="3"/>
+                                </svg>
+                                Camera
+                            </button>
+                            <label class="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-700 active:scale-95 text-white text-xs font-bold py-3 rounded-xl transition-all shadow cursor-pointer">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                </svg>
+                                Upload
+                                <input id="dep-receipt-file" type="file" accept="image/*" class="hidden" onchange="onDepositReceiptSelected(this)">
+                            </label>
+                        </div>
+                        <input id="dep-receipt-base64" type="hidden">
+                        <p class="text-[10px] text-slate-400 mt-2 text-center">Stored directly in the database · JPG or PNG</p>
+                    </div>
+
+                    <!-- DEPOSIT CAMERA OVERLAY -->
+                    <div id="dep-camera-overlay" class="hidden fixed inset-0 z-[10002] bg-black flex flex-col">
+                        <div class="flex items-center justify-between px-5 py-4 bg-[#0f172a]">
+                            <div>
+                                <p class="text-white font-bold text-sm">Take Receipt Photo</p>
+                                <p class="text-slate-400 text-[10px] uppercase tracking-widest mt-0.5">Position the receipt clearly in the frame</p>
+                            </div>
+                            <button onclick="closeDepReceiptCamera()" class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                        <div class="flex-1 relative overflow-hidden">
+                            <video id="dep-camera-video" autoplay playsinline class="absolute inset-0 w-full h-full object-cover"></video>
+                            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div class="border-2 border-blue-400 rounded-xl w-4/5 max-w-sm h-52 opacity-70" style="box-shadow:0 0 0 9999px rgba(0,0,0,0.45)"></div>
+                            </div>
+                        </div>
+                        <canvas id="dep-camera-canvas" class="hidden"></canvas>
+                        <div class="px-5 py-5 bg-[#0f172a] flex items-center justify-center gap-4">
+                            <button onclick="captureDepReceiptPhoto()"
+                                    class="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-xl active:scale-90 transition-transform border-4 border-blue-400">
+                                <svg class="w-7 h-7 text-slate-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                    <circle cx="12" cy="13" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Admin: Target Branch selector -->
+                    <div id="dep-branch-row" class="hidden">
+                        <label class="text-[10px] font-bold text-purple-600 uppercase tracking-widest block mb-2">&#128081; Target Branch <span class="text-red-400">*</span></label>
+                        <select id="dep-target-branch"
+                                class="w-full px-4 py-3.5 bg-purple-50 border-2 border-purple-200 rounded-2xl text-sm font-semibold text-purple-900 focus:ring-0 focus:border-purple-400 outline-none transition-colors shadow-sm">
+                            <option value="">— Select Branch —</option>
+                            <option value="admin">Admin (Parent Account)</option>
+                            <option value="baliwag">Baliwag</option>
+                            <option value="pampanga">Pampanga</option>
+                            <option value="trinoma">Trinoma</option>
+                            <option value="smartwheels">Smart Wheels</option>
+                            <option value="bataan">Bataan</option>
+                        </select>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="flex gap-3 pt-1 pb-2">
+                        <button onclick="hideDepositModal()"
+                                class="flex-1 py-4 rounded-2xl border-2 border-slate-200 bg-white text-slate-600 font-bold text-sm hover:bg-slate-50 active:scale-95 transition-all">
+                            Cancel
+                        </button>
+                        <button onclick="submitDeposit()" id="dep-save-btn"
+                                class="flex-1 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Save Deposit
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- MONTHLY ROW EDIT MODAL -->
+    <dialog id="monthly-edit-modal" class="w-full max-w-lg rounded-3xl p-0 shadow-2xl overflow-hidden backdrop:bg-black/60">
+        <div class="bg-[#0f172a] px-8 py-5 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-white">Edit Daily Row</h3>
+                <p id="monthly-edit-date-label" class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5"></p>
+            </div>
+            <button onclick="closeMonthlyEditModal()" class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="p-6 bg-white space-y-4 max-h-[75vh] overflow-y-auto">
+            <input id="me-date" type="hidden">
+            <input id="me-staff" type="hidden">
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Override computed values for this staff + day</p>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Total Sales Override</label>
+                    <input id="me-sales" type="number" step="0.01" placeholder="Leave blank to keep computed"
+                           class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Expenses Override</label>
+                    <input id="me-expenses" type="number" step="0.01" placeholder="Leave blank to keep computed"
+                           class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 outline-none font-mono text-right">
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Expense Description Override</label>
+                <input id="me-exp-desc" type="text" placeholder="e.g. Water ₱50 / Supplies ₱120"
+                       class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 outline-none">
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-[11px] text-amber-700">
+                ⚠️ Overrides update the monthly table display only — raw rental logs are not modified.
+            </div>
+            <div class="flex gap-3 pt-1">
+                <button onclick="closeMonthlyEditModal()" class="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
+                <button onclick="saveMonthlyRowEdit()" class="flex-1 py-3 rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm shadow active:scale-95 transition-transform">Save Override</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- GRAND TOTAL EDIT MODAL -->
+    <dialog id="gt-edit-modal" class="w-full p-0 shadow-2xl bg-white overflow-hidden max-w-full max-h-full rounded-t-3xl sm:rounded-none backdrop:bg-black/60">
+        <div class="flex flex-col" style="height:100dvh">
+            <!-- Header -->
+            <div class="bg-[#0f172a] px-6 sm:px-8 py-5 flex items-center justify-between shrink-0">
+                <div>
+                    <h3 class="text-base font-bold text-white">Edit Grand Total</h3>
+                    <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Override monthly deduction values</p>
+                </div>
+                <button onclick="closeGrandTotalEdit()" class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto p-6 sm:p-10 flex flex-col justify-center">
+                <div class="max-w-lg w-full mx-auto space-y-5">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Deducted from Total Sales to compute Net Sales</p>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Salary 15th</label>
+                            <input id="gte-salary15" type="number" step="0.01" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Salary 30th</label>
+                            <input id="gte-salary30" type="number" step="0.01" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">SOA</label>
+                            <input id="gte-soa" type="number" step="0.01" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">Waiver</label>
+                            <input id="gte-waiver" type="number" step="0.01" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">O.R.</label>
+                            <input id="gte-or" type="number" step="0.01" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wide block mb-1">VAT 25%</label>
+                            <input id="gte-vat" type="number" step="0.01" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-400 outline-none font-mono text-right">
+                        </div>
+                    </div>
+                    <div class="flex gap-3 pt-2">
+                        <button onclick="closeGrandTotalEdit()" class="flex-1 py-4 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
+                        <button onclick="saveGrandTotalEdit()" class="flex-1 py-4 rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm shadow active:scale-95 transition-transform">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- DEPOSIT EDIT MODAL -->
+    <dialog id="deposit-edit-modal" class="w-full p-0 shadow-2xl bg-white overflow-hidden max-w-full max-h-full rounded-t-3xl sm:rounded-none backdrop:bg-black/60">
+        <div class="flex flex-col" style="height:100dvh">
+            <!-- Header -->
+            <div class="bg-[#0f172a] px-6 sm:px-8 py-5 flex items-center justify-between shrink-0">
+                <div>
+                    <h3 class="text-base font-bold text-white">Edit Deposit Records</h3>
+                    <p id="deposit-edit-month-label" class="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5"></p>
+                </div>
+                <button onclick="closeDepositEdit()" class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto p-5 sm:p-8">
+                <div class="max-w-2xl w-full mx-auto space-y-4">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Edit deposit values for this month — employee-submitted rows shown in grey (read-only fields)</p>
+
+                    <!-- Rows container -->
+                    <div id="deposit-edit-rows" class="space-y-3"></div>
+
+                    <div class="flex gap-3 pt-2">
+                        <button onclick="closeDepositEdit()" class="flex-1 py-4 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
+                        <button onclick="saveDepositEdit()" class="flex-1 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow active:scale-95 transition-transform">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- RECEIPT LIGHTBOX -->
+    <div id="receipt-lightbox" class="hidden fixed inset-0 z-[10000] bg-black/90 flex items-center justify-center p-4" onclick="closeReceiptLightbox()">
+        <div class="relative max-w-2xl w-full" onclick="event.stopPropagation()">
+            <img id="receipt-lightbox-img" src="" alt="Receipt" class="w-full rounded-2xl shadow-2xl object-contain max-h-[85dvh]">
+            <button onclick="closeReceiptLightbox()"
+                    class="absolute -top-3 -right-3 w-10 h-10 bg-white rounded-full shadow-xl flex items-center justify-center text-slate-700 hover:bg-slate-100 active:scale-90 transition-all">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- INVOICE TABLE PANEL (fullscreen) -->
+    <div id="invoice-panel" style="display:none;position:fixed;inset:0;z-index:9000;background:#f1f5f9;flex-direction:column;">
+        <div style="background:#0f172a;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;flex-wrap:wrap;gap:10px;">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+                <div>
+                    <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">MOMO-CART</p>
+                    <h2 style="color:white;font-size:15px;font-weight:800;margin-top:2px;letter-spacing:-0.01em;">Invoice Table</h2>
+                </div>
+                <div style="width:1px;height:32px;background:rgba(255,255,255,0.15);"></div>
+                <!-- Date Filter -->
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <label style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;">Date</label>
+                    <input id="invoice-date-filter" type="date"
+                           oninput="renderInvoiceTable()"
+                           style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:7px 12px;color:white;font-size:12px;outline:none;cursor:pointer;"
+                           onfocus="this.style.borderColor='#22d3ee'"
+                           onblur="this.style.borderColor='rgba(255,255,255,0.2)'">
+                </div>
+                <div style="position:relative;">
+                    <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;" fill="none" stroke="#94a3b8" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                    </svg>
+                    <input id="invoice-panel-search" type="text" placeholder="Search name or O.R. #…"
+                           oninput="renderInvoiceTable()"
+                           style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:8px 12px 8px 32px;color:white;font-size:12px;width:220px;outline:none;"
+                           onfocus="this.style.background='rgba(255,255,255,0.18)'"
+                           onblur="this.style.background='rgba(255,255,255,0.10)'">
+                </div>
+                <button onclick="exportInvoiceCSV()"
+                        style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.4);border-radius:10px;padding:8px 14px;color:#6ee7b7;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:0.05em;"
+                        onmouseover="this.style.background='rgba(16,185,129,0.35)'"
+                        onmouseout="this.style.background='rgba(16,185,129,0.2)'">
+                    <svg style="width:13px;height:13px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    Export
+                </button>
+            </div>
+            <button onclick="closeInvoicePanel()"
+                    style="background:rgba(255,255,255,0.1);border:none;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;"
+                    onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+                    onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+                <svg style="width:18px;height:18px;" fill="none" stroke="white" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <!-- Table Area -->
+        <div style="flex:1;overflow:auto;padding:16px;">
+            <div id="invoice-tables-wrapper"></div>
+        </div>
+
+    <!-- INVOICE MODAL (admin only) — table-style design -->
+    <dialog id="invoice-modal" class="w-full max-w-2xl p-0 shadow-2xl overflow-hidden backdrop:bg-black/60 rounded-2xl">
+        <div class="flex flex-col">
+            <div class="bg-[#0f172a] px-5 py-4 flex items-center justify-between shrink-0">
+                <div>
+                    <p class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">MOMO-CART • Official Receipt</p>
+                    <h3 class="text-base font-extrabold text-white mt-0.5 tracking-tight">Invoice</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="exportInvoiceFromModal()"
+                            class="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition-colors active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Export XLSX
+                    </button>
+                    <button onclick="printInvoice()"
+                            class="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition-colors active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                        Print
+                    </button>
+                    <button onclick="document.getElementById('invoice-modal').close()"
+                            class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="bg-[#f1f5f9] overflow-y-auto max-h-[80vh]">
+                <div id="invoice-printable">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead class="bg-[#0f172a] text-white">
+                                <tr>
+                                    <th class="px-4 py-3.5 text-left whitespace-nowrap uppercase tracking-widest font-bold text-[10px]">O.R. #</th>
+                                    <th class="px-4 py-3.5 text-left whitespace-nowrap uppercase tracking-widest font-bold text-[10px]">Date</th>
+                                    <th class="px-4 py-3.5 text-left whitespace-nowrap uppercase tracking-widest font-bold text-[10px]">Customer</th>
+                                    <th class="px-4 py-3.5 text-left whitespace-nowrap uppercase tracking-widest font-bold text-[10px]">Address</th>
+                                    <th class="px-4 py-3.5 text-left whitespace-nowrap uppercase tracking-widest font-bold text-[10px]">Valid ID</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-slate-100">
+                                <tr>
+                                    <td id="inv-or" class="px-4 py-3.5 font-mono font-bold text-slate-800"></td>
+                                    <td id="inv-date" class="px-4 py-3.5 text-slate-600"></td>
+                                    <td id="inv-name" class="px-4 py-3.5 font-bold text-slate-800"></td>
+                                    <td id="inv-address" class="px-4 py-3.5 text-slate-500 text-[10px]"></td>
+                                    <td id="inv-validid" class="px-4 py-3.5 text-slate-600"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="overflow-x-auto mt-px">
+                        <table class="w-full text-xs">
+                            <thead class="bg-[#0f172a] text-white">
+                                <tr>
+                                    <th class="px-4 py-3.5 text-left uppercase tracking-widest font-bold text-[10px]">Description</th>
+                                    <th class="px-4 py-3.5 text-right uppercase tracking-widest font-bold text-[10px] whitespace-nowrap">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-slate-100">
+                                <tr>
+                                    <td class="px-4 py-3.5 text-slate-700">Rental Fee (Total Sales)</td>
+                                    <td id="inv-total-sales" class="px-4 py-3.5 text-right font-mono font-bold text-slate-800"></td>
+                                </tr>
+                                <tr id="inv-discount-row" class="hidden">
+                                    <td class="px-4 py-3.5 text-emerald-700">Senior / PWD Discount Applied</td>
+                                    <td id="inv-discount-amt" class="px-4 py-3.5 text-right font-mono text-emerald-700"></td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3.5 text-slate-500 text-[11px]">Less: VAT (12%)</td>
+                                    <td id="inv-vat" class="px-4 py-3.5 text-right font-mono text-slate-500 text-[11px]"></td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3.5 text-slate-700">Amount Net of VAT</td>
+                                    <td id="inv-net-vat" class="px-4 py-3.5 text-right font-mono text-slate-700"></td>
+                                </tr>
+                            </tbody>
+                            <tfoot class="bg-emerald-50 border-t-2 border-emerald-200">
+                                <tr>
+                                    <td class="px-4 py-4 font-extrabold text-slate-900 text-sm uppercase tracking-wide">Total Amount Due</td>
+                                    <td id="inv-total-due" class="px-4 py-4 text-right font-mono font-extrabold text-emerald-700 text-xl"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div class="px-5 py-3 text-center bg-white border-t border-slate-100">
+                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Thank you for choosing MOMO-CART!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- EDIT EXPENSE MODAL -->
+    <dialog id="edit-expense-modal" class="w-full max-w-sm rounded-3xl p-0 shadow-2xl overflow-hidden">
+        <div class="bg-[#0f172a] px-5 py-4 flex items-center justify-between">
+            <div>
+                <p class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Expenses</p>
+                <h3 class="text-base font-extrabold text-white mt-0.5">Edit Expense</h3>
+            </div>
+            <button onclick="document.getElementById('edit-expense-modal').close()"
+                    class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="p-5 flex flex-col gap-4 bg-white">
+            <input type="hidden" id="edit-expense-id">
+            <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Particulars</label>
+                <input id="edit-expense-particulars" type="text" placeholder="Description of expense"
+                       class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Amount (₱)</label>
+                <input id="edit-expense-amount" type="number" min="0" step="0.01" placeholder="0.00"
+                       class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 focus:outline-none">
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button onclick="document.getElementById('edit-expense-modal').close()"
+                        class="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+                    Cancel
+                </button>
+                <button id="edit-expense-save-btn" onclick="submitEditExpense()"
+                        class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-sm transition-colors active:scale-95">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- EDIT DEPOSIT MODAL -->
+    <dialog id="edit-deposit-modal" class="w-full max-w-sm rounded-3xl p-0 shadow-2xl overflow-hidden">
+        <div class="bg-[#0f172a] px-5 py-4 flex items-center justify-between">
+            <div>
+                <p class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Deposits</p>
+                <h3 class="text-base font-extrabold text-white mt-0.5">Edit Deposit</h3>
+            </div>
+            <button onclick="document.getElementById('edit-deposit-modal').close()"
+                    class="text-slate-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="p-5 flex flex-col gap-4 bg-white">
+            <input type="hidden" id="edit-deposit-id">
+            <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Description</label>
+                <input id="edit-deposit-description" type="text" placeholder="Description of deposit"
+                       class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Amount (₱)</label>
+                <input id="edit-deposit-amount" type="number" min="0" step="0.01" placeholder="0.00"
+                       class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none">
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button onclick="document.getElementById('edit-deposit-modal').close()"
+                        class="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+                    Cancel
+                </button>
+                <button id="edit-deposit-save-btn" onclick="submitEditDeposit()"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors active:scale-95">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- CONFIRM DELETE EXPENSE/DEPOSIT MODAL -->
+    <dialog id="delete-exp-dep-modal" class="w-full max-w-sm rounded-3xl p-0 shadow-2xl overflow-hidden">
+        <div class="bg-red-600 px-5 py-4 flex items-center justify-between">
+            <h3 class="text-base font-extrabold text-white">Confirm Delete</h3>
+            <button onclick="document.getElementById('delete-exp-dep-modal').close()"
+                    class="text-red-200 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="p-5 bg-white flex flex-col gap-4">
+            <p class="text-sm text-slate-600">Are you sure you want to delete this record? This cannot be undone.</p>
+            <p id="delete-exp-dep-desc" class="text-sm font-bold text-slate-800 bg-slate-50 rounded-xl px-4 py-2"></p>
+            <div class="flex gap-2">
+                <button onclick="document.getElementById('delete-exp-dep-modal').close()"
+                        class="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmDeleteExpDep()"
+                        class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl text-sm transition-colors active:scale-95">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </dialog>
+
+        <!-- Header-date wiring: auto-populate expense/deposit modals with the selected logbook date -->
+    <script>
+    // Wrap showExpenseModal to seed exp-date from header date
+    document.addEventListener('DOMContentLoaded', function() {
+        // Patch expense modal open button
+        const expBtn = document.getElementById('expenses-btn');
+        if (expBtn) {
+            expBtn.addEventListener('click', function() {
+                const headerDate = document.getElementById('header-date')?.value || '';
+                const expDate = document.getElementById('exp-date');
+                if (expDate && headerDate) expDate.value = headerDate;
+            }, true); // capture phase so it fires before any existing handler
+        }
+
+        // Patch deposit modal: add a date field row right after the Amount row
+        const depModal = document.getElementById('deposit-modal');
+        const depAmountDiv = depModal?.querySelector('#dep-amount')?.closest('div')?.parentElement;
+        if (depAmountDiv && !document.getElementById('dep-record-date-row')) {
+            const dateRow = document.createElement('div');
+            dateRow.id = 'dep-record-date-row';
+            dateRow.innerHTML = `
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Record Date</label>
+                <input id="dep-record-date" type="date"
+                       class="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-2xl text-sm focus:ring-0 focus:border-blue-400 outline-none transition-colors shadow-sm font-semibold text-slate-700">
+            `;
+            // Insert before the Amount block's parent
+            const amountBlock = depModal.querySelector('#dep-amount')?.closest('.max-w-lg > div');
+            if (amountBlock) {
+                amountBlock.parentElement.insertBefore(dateRow, amountBlock);
+            }
+        }
+
+        // Seed deposit date when deposit button is clicked
+        const depBtn = document.getElementById('deposit-btn');
+        if (depBtn) {
+            depBtn.addEventListener('click', function() {
+                const headerDate = document.getElementById('header-date')?.value || '';
+                const depDate = document.getElementById('dep-record-date');
+                if (depDate && headerDate) depDate.value = headerDate;
+            }, true);
+        }
+
+        // Also seed when shown via deposit modal inside daily tab (if any)
+        document.querySelectorAll('[onclick*="showDepositModal"]').forEach(el => {
+            el.addEventListener('click', function() {
+                setTimeout(() => {
+                    const headerDate = document.getElementById('header-date')?.value || '';
+                    const depDate = document.getElementById('dep-record-date');
+                    if (depDate && headerDate) depDate.value = headerDate;
+                }, 30);
+            });
+        });
+    });
+
+    // Override submitExpense to always send the expense modal's date (which was pre-seeded from header)
+    // We wrap to inject record_date into the POST before the original fires
+    (function() {
+        const _origFetch = window.apiFetch;
+        // We intercept saveExpense calls to attach the dep-record-date
+        // This is handled by patching the submitDeposit call below
+    })();
+
+    // Patch submitDeposit if defined externally — we re-declare here to add record_date
+    // This runs after expenses-deposit-notif.js and overrides it
+    window.addEventListener('load', function() {
+        const origSubmitDeposit = window.submitDeposit;
+        if (typeof origSubmitDeposit === 'function') {
+            window.submitDeposit = async function() {
+                // Inject dep-record-date into the payload by temporarily overriding apiFetch
+                const depDate = document.getElementById('dep-record-date')?.value || '';
+                const _origApiFetch = window.apiFetch;
+                if (depDate && _origApiFetch) {
+                    window.apiFetch = async function(url, opts) {
+                        if (url.includes('saveDeposit') && opts && opts.body) {
+                            try {
+                                const parsed = JSON.parse(opts.body);
+                                parsed.record_date = depDate;
+                                opts = { ...opts, body: JSON.stringify(parsed) };
+                            } catch(e) {}
+                        }
+                        const result = await _origApiFetch(url, opts);
+                        window.apiFetch = _origApiFetch; // restore immediately
+                        return result;
+                    };
+                }
+                return origSubmitDeposit.apply(this, arguments);
+            };
+        }
+
+        const origSubmitExpense = window.submitExpense;
+        if (typeof origSubmitExpense === 'function') {
+            window.submitExpense = async function() {
+                // Sync exp-date from header if it's empty
+                const headerDate = document.getElementById('header-date')?.value || '';
+                const expDate = document.getElementById('exp-date');
+                if (expDate && !expDate.value && headerDate) expDate.value = headerDate;
+                // The existing submitExpense already reads #exp-date and sends expense_date
+                return origSubmitExpense.apply(this, arguments);
+            };
+        }
+    });
+    </script>
+
+
+
+    <!-- Print styles -->
+    <style>
+        @media print {
+            body > *:not(#invoice-print-frame) { display: none !important; }
+            #invoice-print-frame { display: block !important; position: fixed; inset: 0; width: 100%; }
+        }
+    </style>
+
+    <!-- ✅ FIX 6: openDrawer/closeDrawer are called from inline onclick so must stay non-deferred -->
+    <script>
+        function openDrawer() {
+            const drawer   = document.getElementById('nav-drawer');
+            const backdrop = document.getElementById('drawer-backdrop');
+            drawer.style.transform       = 'translateX(0)';
+            backdrop.style.opacity       = '1';
+            backdrop.style.pointerEvents = 'all';
+        }
+        function closeDrawer() {
+            const drawer   = document.getElementById('nav-drawer');
+            const backdrop = document.getElementById('drawer-backdrop');
+            drawer.style.transform       = 'translateX(-100%)';
+            backdrop.style.opacity       = '0';
+            backdrop.style.pointerEvents = 'none';
+        }
+    </script>
+    <!-- ✅ FIX 7: All external JS files now deferred — page renders immediately,
+         scripts execute in order after HTML is parsed. This fixes render-blocking. -->
+    <script src="globals.js?v=9" defer></script>
+    <script src="auth.js?v=9" defer></script>
+    <script src="logs.js?v=9" defer></script>
+    <script src="forms.js?v=9" defer></script>
+    <script src="summaries.js?v=9" defer></script>
+    <script src="expenses-deposit-notif.js?v=9" defer></script>
+    <script src="Export.js?v=2" defer></script>
+    <script>
+        // ── ADMIN BRANCH SELECTORS: LOGBOOK / EXPENSE / DEPOSIT MODALS ──
+        window.addEventListener('load', function() {
+
+            // Helper: set branch selector value from activeBranch
+            function seedBranchSelector(selId) {
+                const sel = document.getElementById(selId);
+                if (!sel) return;
+                sel.value = (activeBranch && activeBranch !== 'all') ? activeBranch : '';
+            }
+
+            // Show/hide admin branch rows based on role
+            function applyAdminBranchUI() {
+                if (!currentUser || currentUser.role !== 'admin') return;
+                ['exp-branch-row', 'dep-branch-row'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.remove('hidden');
+                });
+                // Logbook form: show the existing branch wrap
+                const fbw = document.getElementById('form-branch-wrap');
+                if (fbw) fbw.classList.remove('hidden');
+            }
+
+            // Patch showAddModal (forms.js) to pre-select active branch
+            const _origShowAddModal = window.showAddModal;
+            if (typeof _origShowAddModal === 'function') {
+                window.showAddModal = function() {
+                    _origShowAddModal.apply(this, arguments);
+                    if (currentUser && currentUser.role === 'admin') {
+                        applyAdminBranchUI();
+                        seedBranchSelector('form-branch');
+                    }
+                };
+            }
+
+            // Patch showExpenseModal to show branch selector and seed it
+            const _origShowExpenseModal = window.showExpenseModal;
+            if (typeof _origShowExpenseModal === 'function') {
+                window.showExpenseModal = function() {
+                    _origShowExpenseModal.apply(this, arguments);
+                    if (currentUser && currentUser.role === 'admin') {
+                        applyAdminBranchUI();
+                        seedBranchSelector('exp-target-branch');
+                    }
+                };
+            }
+
+            // Patch showDepositModal to show branch selector and seed it
+            const _origShowDepositModal = window.showDepositModal;
+            if (typeof _origShowDepositModal === 'function') {
+                window.showDepositModal = function() {
+                    _origShowDepositModal.apply(this, arguments);
+                    if (currentUser && currentUser.role === 'admin') {
+                        applyAdminBranchUI();
+                        seedBranchSelector('dep-target-branch');
+                    }
+                };
+            }
+
+            // Also apply UI immediately after renderApp sets up the role
+            const _origRenderApp = window.renderApp;
+            if (typeof _origRenderApp === 'function') {
+                window.renderApp = function() {
+                    _origRenderApp.apply(this, arguments);
+                    applyAdminBranchUI();
+                };
+            }
+
+            // Patch submitNewEntry (forms.js) to inject target_branch into payload
+            // We intercept apiFetch calls to saveLog and inject the selected branch.
+            const _origSubmitNewEntry = window.submitNewEntry;
+            if (typeof _origSubmitNewEntry === 'function') {
+                window.submitNewEntry = function() {
+                    if (currentUser && currentUser.role === 'admin') {
+                        const branchSel = document.getElementById('form-branch');
+                        const targetBranch = branchSel ? branchSel.value : '';
+                        if (!targetBranch) {
+                            alert('\u26a0\ufe0f Please select a Target Branch before saving.');
+                            return;
+                        }
+                        // Temporarily wrap apiFetch to inject target_branch into saveLog payload
+                        const _origApiFetch = window.apiFetch;
+                        window.apiFetch = function(url, opts) {
+                            if (url.includes('saveLog') && opts && opts.body) {
+                                try {
+                                    const parsed = JSON.parse(opts.body);
+                                    parsed.target_branch = targetBranch;
+                                    opts = { ...opts, body: JSON.stringify(parsed) };
+                                } catch(e) {}
+                            }
+                            window.apiFetch = _origApiFetch; // restore immediately
+                            return _origApiFetch(url, opts);
+                        };
+                    }
+                    return _origSubmitNewEntry.apply(this, arguments);
+                };
+            }
+        });
+    </script>
+    <script>
+        // Tracks which log the invoice modal is currently showing
+        // openInvoiceModal() in expenses-deposit-notif.js sets this
+        window._currentInvoiceLogId = null;
+
+        function exportInvoiceFromModal() {
+            if (typeof exportInvoice === 'function' && window._currentInvoiceLogId) {
+                exportInvoice(window._currentInvoiceLogId);
+            } else {
+                alert('No invoice loaded yet.');
+            }
+        }
+
+        function printInvoice() {
+            const content = document.getElementById('invoice-printable');
+            if (!content) return;
+            const printWin = window.open('', '_blank', 'width=900,height=650');
+            printWin.document.write(`<!DOCTYPE html><html><head>
+                <title>MOMOCart Invoice</title>
+                <style>
+                    body { font-family: sans-serif; font-size: 12px; margin: 24px; color: #0f172a; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th { background: #0f172a; color: white; padding: 8px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+                    td { padding: 7px 12px; border-bottom: 1px solid #e2e8f0; }
+                    tr:nth-child(even) td { background: #f8fafc; }
+                    h2 { color: #0f172a; margin-bottom: 4px; }
+                    p { color: #64748b; margin-top: 0; font-size: 11px; }
+                </style>
+            </head><body>
+                <h2>MOMO-CART • Official Receipt</h2>
+                <p>Invoice — printed ${new Date().toLocaleString('en-PH')}</p>
+                ${content.innerHTML}
+            </body></html>`);
+            printWin.document.close();
+            printWin.focus();
+            setTimeout(() => { printWin.print(); printWin.close(); }, 400);
+        }
+    </script>
+</body>
+</html>
